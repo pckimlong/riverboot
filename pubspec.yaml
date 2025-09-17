@@ -1,9 +1,9 @@
 name: riverboot
-description: "Easy bootstrapping app state with Riverpod"
+description: "App bootstrap & splash task system for Flutter with Riverpod"
 version: 0.0.1
 
 environment:
-  sdk: ^3.9.0-333.2.beta
+  sdk: ^3.9.2
   flutter: ">=1.17.0"
 
 dependencies:
