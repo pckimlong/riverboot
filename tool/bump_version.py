@@ -117,7 +117,8 @@ def main() -> int:
     pubspec_path = "pubspec.yaml"
     changelog_path = "CHANGELOG.md"
 
-    content = open(pubspec_path, "r", encoding="utf-8").read()
+    with open(pubspec_path, "r", encoding="utf-8") as fh:
+        content = fh.read()
     match = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)", content, re.MULTILINE)
     if not match:
         raise RuntimeError("Could not find version in pubspec.yaml")
