@@ -93,7 +93,8 @@ def _update_changelog(path: str, new_version: str, commits: list[Commit]) -> str
 
     previous = ""
     if os.path.exists(path):
-        previous = open(path, "r", encoding="utf-8").read().strip()
+        with open(path, "r", encoding="utf-8") as fh:
+            previous = fh.read().strip()
 
     combined = new_entry + ("\n\n" + previous if previous else "\n")
     with open(path, "w", encoding="utf-8") as fh:
