@@ -116,7 +116,8 @@ def _set_output(key: str, value: str) -> None:
 def main() -> int:
     pubspec_path = "pubspec.yaml"
     changelog_path = "CHANGELOG.md"
-
+    with open(pubspec_path, "r", encoding="utf-8") as fh:
+        content = fh.read()
     with open(pubspec_path, "r", encoding="utf-8") as fh:
         content = fh.read()
     match = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)", content, re.MULTILINE)
