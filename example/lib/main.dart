@@ -15,6 +15,8 @@ final _profileProvider = FutureProvider<String>((ref) async {
 void main() {
   Riverboot.initialize(
     application: const _RiverbootExampleApp(),
+    // Enable enhanced logging for debugging
+    loggingConfig: RiverbootLoggingConfig.enhanced,
     splashConfig: SplashConfig(
       minimumDuration: const Duration(seconds: 1),
       splashBuilder: (error, retry) {
@@ -58,6 +60,8 @@ void main() {
           },
         ),
       ],
+      // You can also override logging config per splash config
+      // taskLoggingConfig: RiverbootLoggingConfig(logTaskErrors: true),
     ),
   );
 }

@@ -26,12 +26,16 @@ class Riverboot {
     bool Function(Object, StackTrace)? onPlatformDispatchError,
     void Function(WidgetRef ref)? earlyEagerInitializer,
     void Function(Object error, StackTrace stack)? onError,
+
+    /// Logging configuration for Riverboot operations
+    RiverbootLoggingConfig loggingConfig = const RiverbootLoggingConfig(),
   }) async {
     final container = ProviderContainer(
       parent: parent,
       overrides: [
         if (splashConfig != null)
           _splashConfigProvider.overrideWithValue(splashConfig),
+        _loggingConfigProvider.overrideWithValue(loggingConfig),
         ...overrides,
       ],
       observers: observers,
@@ -46,7 +50,7 @@ class Riverboot {
       () async {
         WidgetsFlutterBinding.ensureInitialized();
 
-        await _executePreRunTask(preRunTask, container, onError);
+        await _executePreRunTask(preRunTask, container, onError, loggingConfig);
 
         runApp(
           UncontrolledProviderScope(
@@ -90,17 +94,49 @@ class Riverboot {
     Future<void> Function(ProviderContainer container)? preRunTask,
     ProviderContainer container,
     void Function(Object error, StackTrace stack)? onError,
+    RiverbootLoggingConfig loggingConfig,
   ) async {
+    if (preRunTask == null) return;
+
+    final stopwatch = Stopwatch();
+    
     try {
-      if (preRunTask != null) {
-        await preRunTask(container);
+      if (loggingConfig.logTaskStart) {
+        loggingConfig._log('Starting preRunTask execution');
+      }
+      
+      if (loggingConfig.logTaskTiming) {
+        stopwatch.start();
+      }
+
+      await preRunTask(container);
+
+      if (loggingConfig.logTaskTiming) {
+        stopwatch.stop();
+        loggingConfig._log('preRunTask completed in ${stopwatch.elapsedMilliseconds}ms');
+      } else if (loggingConfig.logTaskCompletion) {
+        loggingConfig._log('preRunTask completed successfully');
       }
     } catch (e, stack) {
+      if (loggingConfig.logTaskTiming && stopwatch.isRunning) {
+        stopwatch.stop();
+        loggingConfig._log('preRunTask failed after ${stopwatch.elapsedMilliseconds}ms');
+      }
+
       if (onError != null) {
         onError.call(e, stack);
       } else {
-        // Important that need to log
-        log('Error in preRunTask', stackTrace: stack, error: e);
+        // Enhanced error logging with more context
+        if (loggingConfig.logTaskErrors) {
+          loggingConfig._log(
+            'Error in preRunTask: ${e.runtimeType}: $e',
+            error: e,
+            stackTrace: stack,
+          );
+        } else {
+          // Fallback to basic logging
+          log('Error in preRunTask', name: 'Riverboot', error: e, stackTrace: stack);
+        }
       }
       rethrow;
     }
