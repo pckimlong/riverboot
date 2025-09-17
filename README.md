@@ -69,6 +69,49 @@ void main() {
 Add `SplashBuilder` to your `MaterialApp` (or `CupertinoApp`) `builder` so the
 splash UI can take over while tasks are in-flight.
 
+## Enhanced Logging
+
+Riverboot includes comprehensive logging capabilities to help debug initialization issues and track task performance:
+
+```dart
+// Enable enhanced logging for all operations
+Riverboot.initialize(
+  application: MyApp(),
+  loggingConfig: RiverbootLoggingConfig.enhanced,
+  // ...
+);
+
+// Custom logging configuration
+Riverboot.initialize(
+  application: MyApp(),
+  loggingConfig: RiverbootLoggingConfig(
+    logTaskStart: true,
+    logTaskErrors: true,
+    logTaskTiming: true,
+    customLogger: (message, {error, stackTrace}) {
+      // Your custom logging implementation
+      myLogger.info(message);
+    },
+  ),
+  // ...
+);
+
+// Per-splash task logging
+SplashConfig(
+  splashBuilder: (error, retry) => MySplashScreen(),
+  taskLoggingConfig: RiverbootLoggingConfig.enhanced,
+  oneTimeTasks: [...],
+  reactiveTasks: [...],
+)
+```
+
+Available logging options:
+- `logTaskStart` - Log when tasks begin execution
+- `logTaskCompletion` - Log when tasks complete successfully
+- `logTaskErrors` - Log task failures with stack traces
+- `logTaskTiming` - Log execution times for performance monitoring
+- `customLogger` - Provide your own logging function
+
 ## Reactive Tasks
 Reactive tasks are executed in parallel. Every task lives in its own provider,
 so when multiple `watch` futures resolve simultaneously, their corresponding

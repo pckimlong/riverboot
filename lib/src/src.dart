@@ -44,7 +44,12 @@ class RiverbootLoggingConfig {
   );
 
   /// No logging configuration
-  static const RiverbootLoggingConfig none = RiverbootLoggingConfig();
+  static const RiverbootLoggingConfig none = RiverbootLoggingConfig(
+    logTaskStart: false,
+    logTaskCompletion: false,
+    logTaskErrors: false,
+    logTaskTiming: false,
+  );
 
   void _log(String message, {Object? error, StackTrace? stackTrace}) {
     if (customLogger != null) {
