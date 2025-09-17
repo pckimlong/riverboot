@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base"
+  ],
+  "dependencyDashboard": true,
+  "semanticCommits": "enabled",
+  "rangeStrategy": "bump",
+  "baseBranches": [
+    "dev"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["dart"],
+      "separateMinorPatch": true,
+      "groupName": "dart-dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ]
+}
