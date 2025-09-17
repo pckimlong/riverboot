@@ -73,7 +73,8 @@ def _bump_version(current: str, release_type: str) -> str:
 
 
 def _replace_version(path: str, new_version: str) -> None:
-    content = open(path, "r", encoding="utf-8").read()
+    with open(path, "r", encoding="utf-8") as fh:
+        content = fh.read()
     updated = re.sub(r"(^version:\s*)([0-9]+\.[0-9]+\.[0-9]+)",
                      rf"\1{new_version}", content, count=1, flags=re.MULTILINE)
     if content == updated:
