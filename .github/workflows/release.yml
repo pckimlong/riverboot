@@ -47,12 +47,6 @@ jobs:
           git add pubspec.yaml CHANGELOG.md
           git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
 
-      - name: Rebase onto latest main
-        if: steps.bump.outputs.skip != 'true'
-        run: |
-          git fetch origin main
-          git rebase origin/main
-
       - name: Create tag
         if: steps.bump.outputs.skip != 'true'
         run: |
