@@ -76,7 +76,7 @@ def _replace_version(path: str, new_version: str) -> None:
     with open(path, "r", encoding="utf-8") as fh:
         content = fh.read()
     updated = re.sub(r"(^version:\s*)([0-9]+\.[0-9]+\.[0-9]+)",
-                     rf"\1{new_version}", content, count=1, flags=re.MULTILINE)
+                     rf"\g<1>{new_version}", content, count=1, flags=re.MULTILINE)
     if content == updated:
         raise RuntimeError("Failed to update version in pubspec.yaml")
     with open(path, "w", encoding="utf-8") as fh:
@@ -94,7 +94,6 @@ def _update_changelog(path: str, new_version: str, commits: list[Commit]) -> str
     previous = ""
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as fh:
-            previous = fh.read().strip()
             previous = fh.read().strip()
 
     combined = new_entry + ("\n\n" + previous if previous else "\n")
@@ -117,8 +116,6 @@ def _set_output(key: str, value: str) -> None:
 def main() -> int:
     pubspec_path = "pubspec.yaml"
     changelog_path = "CHANGELOG.md"
-    with open(pubspec_path, "r", encoding="utf-8") as fh:
-        content = fh.read()
     with open(pubspec_path, "r", encoding="utf-8") as fh:
         content = fh.read()
     match = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)", content, re.MULTILINE)
