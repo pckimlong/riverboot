@@ -1,8 +1,6 @@
 part of 'src.dart';
 
-final _splashConfigProvider = Provider<SplashConfig?>(
-  (ref) => throw UnimplementedError(),
-);
+final _splashConfigProvider = Provider<SplashConfig?>((ref) => throw UnimplementedError());
 
 final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
   final config = ref.watch(_splashConfigProvider);
