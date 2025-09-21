@@ -1,3 +1,5 @@
+import 'dart:developer' as dev;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverboot/riverboot.dart';
@@ -17,6 +19,15 @@ void main() {
     application: const _RiverbootExampleApp(),
     splashConfig: SplashConfig(
       minimumDuration: const Duration(seconds: 1),
+      // Enable logging with custom logger that adds timestamps
+      enableLogging: true,
+      logger: (level, message, {error, stackTrace}) {
+        final timestamp = DateTime.now().toIso8601String();
+        dev.log('[$timestamp] $level: $message', 
+                 name: 'Riverboot', 
+                 error: error, 
+                 stackTrace: stackTrace);
+      },
       splashBuilder: (error, retry) {
         return Scaffold(
           body: Center(
@@ -45,17 +56,40 @@ void main() {
       },
       oneTimeTasks: [
         (ref) async {
+          // This task will be logged with the global logger
           await Future.delayed(const Duration(milliseconds: 300));
         },
       ],
       reactiveTasks: [
-        task<bool>(
+        // Using loggedTask with custom task name for better logging
+        loggedTask<bool>(
           watch: (ref) => ref.watch(_authenticatedProvider.future),
           execute: (ref, authenticated) async {
             if (authenticated) {
               await ref.read(_profileProvider.future);
             }
           },
+          taskName: 'AuthenticationFlow',
+          // Custom task-specific logger for authentication events
+          logger: (level, message, {error, stackTrace}) {
+            final timestamp = DateTime.now().toIso8601String();
+            dev.log('[$timestamp] AUTH $level: $message', 
+                     name: 'Riverboot.Auth', 
+                     error: error, 
+                     stackTrace: stackTrace);
+          },
+        ),
+        
+        // Example of a silent task (no logging)
+        silentTask<bool>(
+          watch: (ref) => ref.watch(_authenticatedProvider.future), 
+          execute: (ref, authenticated) async {
+            // This task runs silently without any logging
+            if (authenticated) {
+              // Some background work that doesn't need logging
+            }
+          },
+          taskName: 'BackgroundWork',
         ),
       ],
     ),

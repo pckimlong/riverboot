@@ -50,8 +50,18 @@ jobs:
       - name: Rebase onto latest main
         if: steps.bump.outputs.skip != 'true'
         run: |
+          # Ensure working tree is clean before rebase
+          git status --porcelain
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Working tree is dirty, stashing changes"
+            git stash push -m "Temporary stash before rebase"
+          fi
           git fetch origin main
           git rebase origin/main
+          # Restore stashed changes if any
+          if git stash list | grep -q "Temporary stash before rebase"; then
+            git stash pop
+          fi
 
       - name: Create tag
         if: steps.bump.outputs.skip != 'true'
