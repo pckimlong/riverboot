@@ -1,8 +1,6 @@
 part of 'src.dart';
 
-final _splashConfigProvider = Provider<SplashConfig?>(
-  (ref) => throw UnimplementedError(),
-);
+final _splashConfigProvider = Provider<SplashConfig?>((ref) => throw UnimplementedError());
 
 final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
   final config = ref.watch(_splashConfigProvider);
@@ -30,38 +28,35 @@ final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
   return true;
 });
 
-final _reactiveSplashTasksProvider = FutureProvider.autoDispose
-    .family<dynamic, int>((
-      ref,
-      index,
-    ) async {
-      final config = ref.watch(_splashConfigProvider);
-      final tasks = config?.reactiveTasks;
-      if (config == null || tasks == null || index >= tasks.length) return;
+final _reactiveSplashTasksProvider = FutureProvider.autoDispose.family<dynamic, int>((
+  ref,
+  index,
+) async {
+  final config = ref.watch(_splashConfigProvider);
+  final tasks = config?.reactiveTasks;
+  if (config == null || tasks == null || index >= tasks.length) return;
 
-      final task = tasks[index];
-      return await task.watch(ref);
-    });
+  final task = tasks[index];
+  return await task.watch(ref);
+});
 
-final _reactiveSplashTasksExecuteProvider = FutureProvider.autoDispose
-    .family<void, int>((
-      ref,
-      index,
-    ) async {
-      final config = ref.watch(_splashConfigProvider);
-      final tasks = config?.reactiveTasks;
-      if (config == null || tasks == null || index >= tasks.length) return;
+final _reactiveSplashTasksExecuteProvider = FutureProvider.autoDispose.family<void, int>((
+  ref,
+  index,
+) async {
+  final config = ref.watch(_splashConfigProvider);
+  final tasks = config?.reactiveTasks;
+  if (config == null || tasks == null || index >= tasks.length) return;
 
-      final data = await ref.watch(_reactiveSplashTasksProvider(index).future);
-      await tasks[index].execute(ref, data);
-    });
+  final data = await ref.watch(_reactiveSplashTasksProvider(index).future);
+  await tasks[index].execute(ref, data);
+});
 
 @visibleForTesting
 Provider<SplashConfig?> get splashConfigProvider => _splashConfigProvider;
 
 @visibleForTesting
-FutureProvider<bool> get oneTimeSplashTasksProvider =>
-    _oneTimeSplashTasksProvider;
+FutureProvider<bool> get oneTimeSplashTasksProvider => _oneTimeSplashTasksProvider;
 
 @visibleForTesting
 FutureProvider<dynamic> Function(int) get reactiveSplashTasksProvider =>
@@ -71,13 +66,19 @@ FutureProvider<dynamic> Function(int) get reactiveSplashTasksProvider =>
 FutureProvider<void> Function(int) get reactiveSplashTasksExecuteProvider =>
     (index) => _reactiveSplashTasksExecuteProvider(index);
 
+class SplashTaskError implements Exception {
+  final Object error;
+  final StackTrace stack;
+
+  SplashTaskError({required this.error, required this.stack});
+
+  @override
+  String toString() => 'SplashTaskError: $error\n$stack';
+}
+
 class SplashConfig {
   /// The splash screen widget builder. For injecting splash widget
-  final Widget Function(
-    ({Object error, StackTrace stack})? error,
-    VoidCallback? retry,
-  )
-  splashBuilder;
+  final Widget Function(SplashTaskError? error, VoidCallback? retry) splashBuilder;
 
   final List<Future<void> Function(Ref ref)> oneTimeTasks;
 
