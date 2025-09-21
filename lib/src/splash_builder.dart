@@ -132,7 +132,9 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     return config.splashBuilder(
       _getFirstError(ref, config, oneTimeSplashTask),
 
-      _hasAnyError(ref, config, oneTimeSplashTask) ? _createRetryCallback(oneTimeSplashTask) : null,
+      _hasAnyError(ref, config, oneTimeSplashTask)
+          ? _createRetryCallback(oneTimeSplashTask)
+          : null,
     );
   }
 
@@ -165,19 +167,28 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     AsyncValue<bool> oneTimeTask,
   ) {
     if (oneTimeTask.hasError) {
-      return SplashTaskError(error: oneTimeTask.error!, stack: oneTimeTask.stackTrace!);
+      return SplashTaskError(
+        error: oneTimeTask.error!,
+        stack: oneTimeTask.stackTrace!,
+      );
     }
 
     final tasks = config.reactiveTasks;
     for (int i = 0; i < tasks.length; i++) {
       final watchState = ref.read(_reactiveSplashTasksProvider(i));
       if (watchState.hasError) {
-        return SplashTaskError(error: watchState.error!, stack: watchState.stackTrace!);
+        return SplashTaskError(
+          error: watchState.error!,
+          stack: watchState.stackTrace!,
+        );
       }
 
       final executeState = ref.read(_reactiveSplashTasksExecuteProvider(i));
       if (executeState.hasError) {
-        return SplashTaskError(error: executeState.error!, stack: executeState.stackTrace!);
+        return SplashTaskError(
+          error: executeState.error!,
+          stack: executeState.stackTrace!,
+        );
       }
     }
 
