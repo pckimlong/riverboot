@@ -71,12 +71,32 @@ FutureProvider<dynamic> Function(int) get reactiveSplashTasksProvider =>
 FutureProvider<void> Function(int) get reactiveSplashTasksExecuteProvider =>
     (index) => _reactiveSplashTasksExecuteProvider(index);
 
+class SplashTaskError implements Exception {
+  final Object error;
+  final StackTrace stack;
+
+  SplashTaskError({required this.error, required this.stack});
+
+  @override
+  String toString() {
+    final buffer = StringBuffer('SplashTaskError');
+    // Only include error, and avoid exposing sensitive info
+    buffer.write(': ');
+    // Only print the type and message, not the full object if possible
+    buffer.write(error.runtimeType);
+    if (error is Exception || error is Error) {
+      buffer.write(': ${error.toString()}');
+    }
+    // Only include stack trace, and only the first few lines
+    final stackStr = stack.toString().split('\n').take(5).join('\n');
+    buffer.write('\nStack trace (first 5 lines):\n$stackStr');
+    return buffer.toString();
+  }
+}
+
 class SplashConfig {
   /// The splash screen widget builder. For injecting splash widget
-  final Widget Function(
-    ({Object error, StackTrace stack})? error,
-    VoidCallback? retry,
-  )
+  final Widget Function(SplashTaskError? error, VoidCallback? retry)
   splashBuilder;
 
   final List<Future<void> Function(Ref ref)> oneTimeTasks;

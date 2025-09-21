@@ -161,25 +161,34 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     };
   }
 
-  ({Object error, StackTrace stack})? _getFirstError(
+  SplashTaskError? _getFirstError(
     WidgetRef ref,
     SplashConfig config,
     AsyncValue<bool> oneTimeTask,
   ) {
     if (oneTimeTask.hasError) {
-      return (error: oneTimeTask.error!, stack: oneTimeTask.stackTrace!);
+      return SplashTaskError(
+        error: oneTimeTask.error!,
+        stack: oneTimeTask.stackTrace!,
+      );
     }
 
     final tasks = config.reactiveTasks;
     for (int i = 0; i < tasks.length; i++) {
       final watchState = ref.read(_reactiveSplashTasksProvider(i));
       if (watchState.hasError) {
-        return (error: watchState.error!, stack: watchState.stackTrace!);
+        return SplashTaskError(
+          error: watchState.error!,
+          stack: watchState.stackTrace!,
+        );
       }
 
       final executeState = ref.read(_reactiveSplashTasksExecuteProvider(i));
       if (executeState.hasError) {
-        return (error: executeState.error!, stack: executeState.stackTrace!);
+        return SplashTaskError(
+          error: executeState.error!,
+          stack: executeState.stackTrace!,
+        );
       }
     }
 
