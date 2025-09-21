@@ -73,7 +73,24 @@ class SplashTaskError implements Exception {
   SplashTaskError({required this.error, required this.stack});
 
   @override
-  String toString() => 'SplashTaskError: $error\n$stack';
+  String toString() {
+    final buffer = StringBuffer('SplashTaskError');
+    // Only include error if not null, and avoid exposing sensitive info
+    if (error != null) {
+      buffer.write(': ');
+      // Only print the type and message, not the full object if possible
+      buffer.write(error.runtimeType);
+      if (error is Exception || error is Error) {
+        buffer.write(': ${error.toString()}');
+      }
+    }
+    // Only include stack trace if not null, and only the first few lines
+    if (stack != null) {
+      final stackStr = stack.toString().split('\n').take(5).join('\n');
+      buffer.write('\nStack trace (first 5 lines):\n$stackStr');
+    }
+    return buffer.toString();
+  }
 }
 
 class SplashConfig {
