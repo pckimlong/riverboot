@@ -30,12 +30,10 @@ class Riverboot {
     final container = ProviderContainer(
       parent: parent,
       overrides: [
-        if (splashConfig != null)
-          _splashConfigProvider.overrideWithValue(splashConfig),
+        if (splashConfig != null) _splashConfigProvider.overrideWithValue(splashConfig),
         ...overrides,
       ],
       observers: observers,
-      retry: retry,
     );
 
     if (onPlatformDispatchError != null) {
