@@ -1,6 +1,7 @@
 name: riverboot
 description: "App bootstrap & splash task system for Flutter with Riverpod"
 version: 0.0.1
+repository: https://github.com/pckimlong/riverboot
 
 environment:
   sdk: ^3.9.2
