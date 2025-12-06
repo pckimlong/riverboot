@@ -4,22 +4,22 @@ final _splashConfigProvider = Provider<SplashConfig?>(
   (ref) => throw UnimplementedError(),
 );
 
-final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
+/// One-time tasks - run once at app start
+final _splashTasksProvider = FutureProvider<void>((ref) async {
   final config = ref.watch(_splashConfigProvider);
-  if (config == null) return true;
+  if (config == null) return;
 
-  final tasks = config.oneTimeTasks;
+  final tasks = config.tasks;
   final minimumDuration = config.minimumDuration;
   final hasMinDuration = minimumDuration > Duration.zero;
 
   // Early return if no tasks and no minimum duration
-  if (tasks.isEmpty && !hasMinDuration) return true;
+  if (tasks.isEmpty && !hasMinDuration) return;
 
   final stopwatch = hasMinDuration ? (Stopwatch()..start()) : null;
 
   if (tasks.isNotEmpty) {
-    if (config.runOneTimeTaskInParallel) {
-      // Use more efficient Future.wait with growable: false
+    if (config.runTasksInParallel) {
       await Future.wait(
         [for (final task in tasks) task(ref)],
         eagerError: true,
@@ -38,50 +38,40 @@ final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
       await Future.delayed(remaining);
     }
   }
-
-  return true;
 });
 
-final _reactiveSplashTasksProvider = FutureProvider.autoDispose.family<dynamic, int>((
-  ref,
-  index,
-) async {
-  final config = ref.watch(_splashConfigProvider);
-  if (config == null) return null;
-
-  final tasks = config.reactiveTasks;
-  if (index >= tasks.length) return null;
-
-  return await tasks[index].watch(ref);
-});
-
-final _reactiveSplashTasksExecuteProvider = FutureProvider.autoDispose.family<void, int>((
-  ref,
-  index,
-) async {
+/// Watches the trigger - creates reactive dependency
+final _reactiveTaskTriggerProvider = Provider<void>((ref) {
   final config = ref.watch(_splashConfigProvider);
   if (config == null) return;
 
-  final tasks = config.reactiveTasks;
-  if (index >= tasks.length) return;
+  final reactiveTask = config.reactiveTask;
+  if (reactiveTask == null) return;
 
-  final data = await ref.watch(_reactiveSplashTasksProvider(index).future);
-  await tasks[index].execute(ref, data);
+  // Call trigger to establish watches
+  reactiveTask.trigger(ref);
+});
+
+/// Executes the run function - invalidated by SplashBuilder when trigger changes
+final _reactiveTaskRunProvider = FutureProvider<void>((ref) async {
+  final config = ref.watch(_splashConfigProvider);
+  if (config == null) return;
+
+  final reactiveTask = config.reactiveTask;
+  if (reactiveTask == null) return;
+
+  // Execute run
+  await reactiveTask.run(ref);
 });
 
 @visibleForTesting
 Provider<SplashConfig?> get splashConfigProvider => _splashConfigProvider;
 
 @visibleForTesting
-FutureProvider<bool> get oneTimeSplashTasksProvider => _oneTimeSplashTasksProvider;
+FutureProvider<void> get splashTasksProvider => _splashTasksProvider;
 
 @visibleForTesting
-FutureProvider<dynamic> Function(int) get reactiveSplashTasksProvider =>
-    (index) => _reactiveSplashTasksProvider(index);
-
-@visibleForTesting
-FutureProvider<void> Function(int) get reactiveSplashTasksExecuteProvider =>
-    (index) => _reactiveSplashTasksExecuteProvider(index);
+FutureProvider<void> get reactiveTaskRunProvider => _reactiveTaskRunProvider;
 
 class SplashTaskError implements Exception {
   final Object error;
@@ -118,60 +108,106 @@ class SplashTaskError implements Exception {
   }
 }
 
+/// A reactive task that re-runs when watched providers change.
+///
+/// Use [trigger] to define what providers to watch. When any of them change,
+/// [run] is executed and splash screen is shown during execution.
+///
+/// ```dart
+/// ReactiveTask(
+///   trigger: (ref) => ref.watch(authProvider),
+///   run: (read) async {
+///     final isAuth = await read(authProvider.future);
+///     if (isAuth) {
+///       await read(profileProvider.future);
+///     }
+///   },
+/// )
+/// ```
+class ReactiveTask {
+  /// Defines what triggers re-execution. Use [ref.watch] here.
+  ///
+  /// When any watched provider changes, [run] will be called again.
+  final void Function(Ref ref) trigger;
+
+  /// The work to execute.
+  ///
+  /// This runs:
+  /// 1. On initial app start (along with one-time tasks)
+  /// 2. Whenever [trigger]'s watched providers change
+  ///
+  /// Splash screen is shown only when [trigger] changes, not when
+  /// providers watched inside [run] change.
+  final Future<void> Function(Ref ref) run;
+
+  const ReactiveTask({
+    required this.trigger,
+    required this.run,
+  });
+}
+
 class SplashConfig {
   /// The splash screen widget builder. For injecting splash widget
   final Widget Function(SplashTaskError? error, VoidCallback? retry) splashBuilder;
 
-  /// One-time tasks to run during splash. Immutable after construction.
-  final List<Future<void> Function(Ref ref)> oneTimeTasks;
+  /// One-time tasks to run during splash.
+  ///
+  /// These run once at app start and never again (unless retry is triggered).
+  ///
+  /// ```dart
+  /// tasks: [
+  ///   (ref) async {
+  ///     await initializeServices();
+  ///     await loadConfig();
+  ///   },
+  /// ]
+  /// ```
+  ///
+  /// ## Retry Support
+  ///
+  /// Use [ref.onDispose] to register cleanup for retry:
+  ///
+  /// ```dart
+  /// tasks: [
+  ///   (ref) async {
+  ///     ref.onDispose(() => ref.invalidate(configProvider));
+  ///     await ref.read(configProvider.future);
+  ///   },
+  /// ]
+  /// ```
+  final List<Future<void> Function(Ref ref)> tasks;
+
+  /// Optional reactive task that re-runs when watched providers change.
+  ///
+  /// Use this for user session data that needs to reload on auth changes:
+  ///
+  /// ```dart
+  /// reactiveTask: ReactiveTask(
+  ///   trigger: (ref) => ref.watch(authProvider),  // What triggers re-run
+  ///   run: (read) async {                          // Work to execute
+  ///     final isAuth = await read(authProvider.future);
+  ///     if (isAuth) {
+  ///       await read(profileProvider.future);
+  ///     }
+  ///   },
+  /// ),
+  /// ```
+  ///
+  /// The [run] function only receives [read] - no [watch] - to prevent
+  /// accidentally creating unwanted reactive dependencies.
+  final ReactiveTask? reactiveTask;
 
   /// Whether to run the one-time tasks in parallel or sequentially. Default is `true`.
-  /// If set to `true`, all tasks will be started at the same time, be cautious of using this
-  /// if the tasks might be dependent on each other
-  final bool runOneTimeTaskInParallel;
+  final bool runTasksInParallel;
 
   /// The minimum duration to show the splash screen. Default is `Duration.zero`.
   final Duration minimumDuration;
 
-  /// Reactive tasks are tasks that run when the watched data changes
-  /// extend [ReactiveSplashTask] or use [task] function to create one
-  /// Reactive tasks are run in parallel by default
-  final List<ReactiveSplashTask> reactiveTasks;
-
   SplashConfig({
     required this.splashBuilder,
-    List<Future<void> Function(Ref ref)> oneTimeTasks = const [],
-    List<ReactiveSplashTask> reactiveTasks = const [],
+    List<Future<void> Function(Ref ref)> tasks = const [],
+    this.reactiveTask,
     this.minimumDuration = Duration.zero,
-    this.runOneTimeTaskInParallel = true,
-  }) : oneTimeTasks = List.unmodifiable(oneTimeTasks),
-       reactiveTasks = List.unmodifiable(reactiveTasks);
-}
-
-abstract class ReactiveSplashTask<T> {
-  /// The data to watch, when this data changes, [execute] will be called
-  /// The reason this exist is to prevent provider in execute function to trigger splash screen show when it change
-  Future<T> watch(Ref ref);
-
-  /// Run when the watched data changes
-  Future<void> execute(Ref ref, T watchedData);
-}
-
-class _ClosureReactiveTask<T> extends ReactiveSplashTask<T> {
-  final Future<T> Function(Ref ref) _watch;
-  final Future<void> Function(Ref ref, T watchedData) _execute;
-  _ClosureReactiveTask(this._watch, this._execute);
-
-  @override
-  Future<T> watch(Ref ref) => _watch(ref);
-
-  @override
-  Future<void> execute(Ref ref, T watchedData) => _execute(ref, watchedData);
-}
-
-ReactiveSplashTask<T> task<T>({
-  required Future<T> Function(Ref ref) watch,
-  required Future<void> Function(Ref ref, T watchedData) execute,
-}) {
-  return _ClosureReactiveTask(watch, execute);
+    this.runTasksInParallel = true,
+  }) : tasks = List.unmodifiable(tasks);
 }

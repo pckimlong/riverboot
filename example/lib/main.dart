@@ -41,21 +41,27 @@ void main() {
           ),
         );
       },
-      oneTimeTasks: [
+      // One-time tasks - run once at app start
+      tasks: [
         (ref) async {
+          // Initialize services, load config, etc.
           await Future.delayed(const Duration(milliseconds: 300));
         },
       ],
-      reactiveTasks: [
-        task<bool>(
-          watch: (ref) => ref.watch(_authenticatedProvider.future),
-          execute: (ref, authenticated) async {
-            if (authenticated) {
-              await ref.read(_profileProvider.future);
-            }
-          },
-        ),
-      ],
+      // Reactive task - re-runs when trigger changes, shows splash
+      reactiveTask: ReactiveTask(
+        // Only authProvider changes trigger re-run and show splash
+        trigger: (ref) => ref.watch(_authenticatedProvider),
+        // Work to execute - full ref available
+        // Using ref.watch here won't show splash (only trigger changes do)
+        run: (ref) async {
+          final authenticated = await ref.watch(_authenticatedProvider.future);
+          if (authenticated) {
+            // This keeps profileProvider alive, but won't show splash when it changes
+            await ref.watch(_profileProvider.future);
+          }
+        },
+      ),
     ),
   );
 }
