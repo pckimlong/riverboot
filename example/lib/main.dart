@@ -15,6 +15,7 @@ final _profileProvider = FutureProvider<String>((ref) async {
 void main() {
   Riverboot.initialize(
     application: const _RiverbootExampleApp(),
+    retry: (int retryCount, Object error) => Duration(seconds: retryCount),
     splashConfig: SplashConfig(
       minimumDuration: const Duration(seconds: 1),
       splashBuilder: (error, retry) {
