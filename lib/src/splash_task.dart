@@ -8,12 +8,22 @@ final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
   final config = ref.watch(_splashConfigProvider);
   if (config == null) return true;
 
-  final stopwatch = Stopwatch()..start();
   final tasks = config.oneTimeTasks;
+  final minimumDuration = config.minimumDuration;
+  final hasMinDuration = minimumDuration > Duration.zero;
+
+  // Early return if no tasks and no minimum duration
+  if (tasks.isEmpty && !hasMinDuration) return true;
+
+  final stopwatch = hasMinDuration ? (Stopwatch()..start()) : null;
 
   if (tasks.isNotEmpty) {
     if (config.runOneTimeTaskInParallel) {
-      await Future.wait([for (final task in tasks) task(ref)]);
+      // Use more efficient Future.wait with growable: false
+      await Future.wait(
+        [for (final task in tasks) task(ref)],
+        eagerError: true,
+      );
     } else {
       for (final task in tasks) {
         await task(ref);
@@ -21,47 +31,49 @@ final _oneTimeSplashTasksProvider = FutureProvider<bool>((ref) async {
     }
   }
 
-  stopwatch.stop();
-  final remaining = config.minimumDuration - stopwatch.elapsed;
-  if (remaining > Duration.zero) {
-    await Future.delayed(remaining);
+  if (stopwatch != null) {
+    stopwatch.stop();
+    final remaining = minimumDuration - stopwatch.elapsed;
+    if (remaining > Duration.zero) {
+      await Future.delayed(remaining);
+    }
   }
 
   return true;
 });
 
-final _reactiveSplashTasksProvider = FutureProvider.autoDispose
-    .family<dynamic, int>((
-      ref,
-      index,
-    ) async {
-      final config = ref.watch(_splashConfigProvider);
-      final tasks = config?.reactiveTasks;
-      if (config == null || tasks == null || index >= tasks.length) return;
+final _reactiveSplashTasksProvider = FutureProvider.autoDispose.family<dynamic, int>((
+  ref,
+  index,
+) async {
+  final config = ref.watch(_splashConfigProvider);
+  if (config == null) return null;
 
-      final task = tasks[index];
-      return await task.watch(ref);
-    });
+  final tasks = config.reactiveTasks;
+  if (index >= tasks.length) return null;
 
-final _reactiveSplashTasksExecuteProvider = FutureProvider.autoDispose
-    .family<void, int>((
-      ref,
-      index,
-    ) async {
-      final config = ref.watch(_splashConfigProvider);
-      final tasks = config?.reactiveTasks;
-      if (config == null || tasks == null || index >= tasks.length) return;
+  return await tasks[index].watch(ref);
+});
 
-      final data = await ref.watch(_reactiveSplashTasksProvider(index).future);
-      await tasks[index].execute(ref, data);
-    });
+final _reactiveSplashTasksExecuteProvider = FutureProvider.autoDispose.family<void, int>((
+  ref,
+  index,
+) async {
+  final config = ref.watch(_splashConfigProvider);
+  if (config == null) return;
+
+  final tasks = config.reactiveTasks;
+  if (index >= tasks.length) return;
+
+  final data = await ref.watch(_reactiveSplashTasksProvider(index).future);
+  await tasks[index].execute(ref, data);
+});
 
 @visibleForTesting
 Provider<SplashConfig?> get splashConfigProvider => _splashConfigProvider;
 
 @visibleForTesting
-FutureProvider<bool> get oneTimeSplashTasksProvider =>
-    _oneTimeSplashTasksProvider;
+FutureProvider<bool> get oneTimeSplashTasksProvider => _oneTimeSplashTasksProvider;
 
 @visibleForTesting
 FutureProvider<dynamic> Function(int) get reactiveSplashTasksProvider =>
@@ -75,30 +87,42 @@ class SplashTaskError implements Exception {
   final Object error;
   final StackTrace stack;
 
+  // Cache the string representation for repeated access
+  String? _cachedString;
+
   SplashTaskError({required this.error, required this.stack});
 
   @override
   String toString() {
-    final buffer = StringBuffer('SplashTaskError');
-    // Only include error, and avoid exposing sensitive info
-    buffer.write(': ');
-    // Only print the type and message, not the full object if possible
+    // Return cached value if available
+    if (_cachedString != null) return _cachedString!;
+
+    final buffer = StringBuffer('SplashTaskError: ');
     buffer.write(error.runtimeType);
+
     if (error is Exception || error is Error) {
-      buffer.write(': ${error.toString()}');
+      buffer.write(': ');
+      buffer.write(error.toString());
     }
-    // Only include stack trace, and only the first few lines
-    final stackStr = stack.toString().split('\n').take(5).join('\n');
-    buffer.write('\nStack trace (first 5 lines):\n$stackStr');
-    return buffer.toString();
+
+    // Only include stack trace, limit to first 5 lines
+    final stackLines = stack.toString().split('\n');
+    final limitedStack = stackLines.length > 5
+        ? stackLines.sublist(0, 5).join('\n')
+        : stackLines.join('\n');
+    buffer.write('\nStack trace (first 5 lines):\n');
+    buffer.write(limitedStack);
+
+    _cachedString = buffer.toString();
+    return _cachedString!;
   }
 }
 
 class SplashConfig {
   /// The splash screen widget builder. For injecting splash widget
-  final Widget Function(SplashTaskError? error, VoidCallback? retry)
-  splashBuilder;
+  final Widget Function(SplashTaskError? error, VoidCallback? retry) splashBuilder;
 
+  /// One-time tasks to run during splash. Immutable after construction.
   final List<Future<void> Function(Ref ref)> oneTimeTasks;
 
   /// Whether to run the one-time tasks in parallel or sequentially. Default is `true`.
