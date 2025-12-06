@@ -31,9 +31,7 @@ class SplashBuilder extends ConsumerWidget {
     // isReloading (run's own dependencies) won't show splash
     final reactiveComplete = reactiveTaskRun.hasValue && !reactiveTaskRun.isRefreshing;
 
-    if (oneTimeComplete && reactiveComplete) {
-      return child;
-    }
+    final isComplete = oneTimeComplete && reactiveComplete;
 
     // Check for errors - prioritize one-time task errors
     final error = oneTimeTask.hasError
@@ -50,6 +48,24 @@ class SplashBuilder extends ConsumerWidget {
           ref.invalidate(_reactiveTaskRunProvider);
         },
       );
+    }
+
+    // Use fade transition if enabled
+    if (config.fadeTransition) {
+      return AnimatedSwitcher(
+        duration: config.fadeDuration,
+        child: isComplete
+            ? KeyedSubtree(key: const ValueKey('child'), child: child)
+            : KeyedSubtree(
+                key: const ValueKey('splash'),
+                child: config.splashBuilder(null, null),
+              ),
+      );
+    }
+
+    // Instant switch (no fade)
+    if (isComplete) {
+      return child;
     }
 
     // Loading state

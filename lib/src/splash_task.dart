@@ -203,11 +203,24 @@ class SplashConfig {
   /// The minimum duration to show the splash screen. Default is `Duration.zero`.
   final Duration minimumDuration;
 
+  /// Whether to use a fade transition when switching from splash to child widget.
+  ///
+  /// When `true` (default), the child widget fades in smoothly after splash tasks complete.
+  /// Set to `false` for an instant switch.
+  final bool fadeTransition;
+
+  /// The duration of the fade transition. Default is `300ms`.
+  ///
+  /// Only used when [fadeTransition] is `true`.
+  final Duration fadeDuration;
+
   SplashConfig({
     required this.splashBuilder,
     List<Future<void> Function(Ref ref)> tasks = const [],
     this.reactiveTask,
     this.minimumDuration = Duration.zero,
     this.runTasksInParallel = true,
+    this.fadeTransition = true,
+    this.fadeDuration = const Duration(milliseconds: 300),
   }) : tasks = List.unmodifiable(tasks);
 }

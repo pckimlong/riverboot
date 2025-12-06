@@ -37,6 +37,7 @@ void main() {
               SplashConfig(
                 splashBuilder: (_, _) => const Text('Splash Screen'),
                 tasks: [(ref) => completer.future],
+                fadeTransition: false,
               ),
             ),
           ],
@@ -496,6 +497,9 @@ void main() {
 
     test('parallel tasks can complete in any order', () async {
       final completionOrder = <int>[];
+      final c1 = Completer<void>();
+      final c2 = Completer<void>();
+      final c3 = Completer<void>();
 
       final container = ProviderContainer.test(
         overrides: [
@@ -505,15 +509,15 @@ void main() {
               runTasksInParallel: true,
               tasks: [
                 (ref) async {
-                  await Future.delayed(const Duration(milliseconds: 30));
+                  await c1.future;
                   completionOrder.add(1);
                 },
                 (ref) async {
-                  await Future.delayed(const Duration(milliseconds: 10));
+                  await c2.future;
                   completionOrder.add(2);
                 },
                 (ref) async {
-                  await Future.delayed(const Duration(milliseconds: 20));
+                  await c3.future;
                   completionOrder.add(3);
                 },
               ],
@@ -522,11 +526,21 @@ void main() {
         ],
       );
 
-      await container.read(splashTasksProvider.future);
+      final future = container.read(splashTasksProvider.future);
+
+      // Complete in specific order: 2, 3, 1
+      await Future.delayed(Duration.zero); // Allow tasks to start
+      c2.complete();
+      await Future.delayed(Duration.zero);
+      c3.complete();
+      await Future.delayed(Duration.zero);
+      c1.complete();
+
+      await future;
 
       // All tasks completed
       expect(completionOrder.length, 3);
-      // Order should be based on timing: 2 (10ms), 3 (20ms), 1 (30ms)
+      // Order should match completion order
       expect(completionOrder, [2, 3, 1]);
     });
   });

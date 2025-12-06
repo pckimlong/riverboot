@@ -254,6 +254,7 @@ void main() {
               SplashConfig(
                 splashBuilder: (_, _) => const Text('Splash'),
                 tasks: [(ref) => completer.future],
+                fadeTransition: false,
               ),
             ),
           ],
@@ -548,6 +549,7 @@ void main() {
                   trigger: (ref) {},
                   run: (ref) => reactiveCompleter.future,
                 ),
+                fadeTransition: false,
               ),
             ),
           ],
