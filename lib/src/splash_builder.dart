@@ -10,18 +10,20 @@ class SplashBuilder extends ConsumerStatefulWidget {
 }
 
 class _SplashBuilderState extends ConsumerState<SplashBuilder> {
-  final Set<int> _changedWatchValues = {};
-
-  final Map<int, bool> _activeWatchValues = {};
-
-  final Map<int, bool> _activeExecuteTasks = {};
+  // Use fixed-size lists for O(1) access instead of maps
+  late List<bool> _changedWatchValues;
+  late List<bool> _activeWatchValues;
+  late List<bool> _activeExecuteTasks;
 
   final List<ProviderSubscription<dynamic>> _subscriptions = [];
 
+  // Cache loading state to avoid repeated iteration
+  int _activeWatchCount = 0;
+  int _activeExecuteCount = 0;
+  int _changedWatchCount = 0;
+
   bool get isReactiveTasksLoading {
-    return _changedWatchValues.isNotEmpty ||
-        _activeWatchValues.values.any((isLoading) => isLoading) ||
-        _activeExecuteTasks.values.any((isLoading) => isLoading);
+    return _changedWatchCount > 0 || _activeWatchCount > 0 || _activeExecuteCount > 0;
   }
 
   @override
@@ -41,35 +43,51 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     final config = ref.read(_splashConfigProvider);
     if (config == null) return;
 
-    final reactiveTasks = config.reactiveTasks;
+    final taskCount = config.reactiveTasks.length;
+    if (taskCount == 0) return;
 
-    _initializeTaskStates(reactiveTasks.length);
+    _initializeTaskStates(taskCount);
 
-    for (int taskIndex = 0; taskIndex < reactiveTasks.length; taskIndex++) {
+    for (int taskIndex = 0; taskIndex < taskCount; taskIndex++) {
       _setupWatchProviderListener(taskIndex);
       _setupExecuteProviderListener(taskIndex);
     }
   }
 
   void _initializeTaskStates(int taskCount) {
-    for (int i = 0; i < taskCount; i++) {
-      _changedWatchValues.add(i);
-      _activeWatchValues[i] = true;
-      _activeExecuteTasks[i] = true;
-    }
+    // Pre-allocate fixed-size lists
+    _changedWatchValues = List<bool>.filled(taskCount, true);
+    _activeWatchValues = List<bool>.filled(taskCount, true);
+    _activeExecuteTasks = List<bool>.filled(taskCount, true);
+
+    // Initialize counters
+    _changedWatchCount = taskCount;
+    _activeWatchCount = taskCount;
+    _activeExecuteCount = taskCount;
   }
 
   void _setupWatchProviderListener(int taskIndex) {
     final subscription = ref.listenManual(
       _reactiveSplashTasksProvider(taskIndex),
       (previous, next) {
-        setState(() {
-          if (previous?.value != next.value) {
-            _changedWatchValues.add(taskIndex);
-          }
+        final wasChanged = _changedWatchValues[taskIndex];
+        final wasActive = _activeWatchValues[taskIndex];
+        final shouldMarkChanged = previous?.value != next.value;
+        final isNowActive = !next.hasValue;
 
-          _activeWatchValues[taskIndex] = !next.hasValue;
-        });
+        // Only call setState if state actually changed
+        if ((shouldMarkChanged && !wasChanged) || wasActive != isNowActive) {
+          setState(() {
+            if (shouldMarkChanged && !wasChanged) {
+              _changedWatchValues[taskIndex] = true;
+              _changedWatchCount++;
+            }
+            if (wasActive != isNowActive) {
+              _activeWatchValues[taskIndex] = isNowActive;
+              _activeWatchCount += isNowActive ? 1 : -1;
+            }
+          });
+        }
       },
     );
     _subscriptions.add(subscription);
@@ -79,14 +97,24 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     final subscription = ref.listenManual(
       _reactiveSplashTasksExecuteProvider(taskIndex),
       (previous, next) {
-        setState(() {
-          if (next.isLoading || next.hasError) {
-            _activeExecuteTasks[taskIndex] = true;
-          } else if (next.hasValue) {
-            _activeExecuteTasks[taskIndex] = false;
-            _changedWatchValues.remove(taskIndex);
-          }
-        });
+        final wasActive = _activeExecuteTasks[taskIndex];
+        final wasChanged = _changedWatchValues[taskIndex];
+        final shouldBeActive = next.isLoading || next.hasError;
+        final shouldClearChanged = next.hasValue && wasChanged;
+
+        // Only call setState if state actually changed
+        if (wasActive != shouldBeActive || shouldClearChanged) {
+          setState(() {
+            if (wasActive != shouldBeActive) {
+              _activeExecuteTasks[taskIndex] = shouldBeActive;
+              _activeExecuteCount += shouldBeActive ? 1 : -1;
+            }
+            if (shouldClearChanged) {
+              _changedWatchValues[taskIndex] = false;
+              _changedWatchCount--;
+            }
+          });
+        }
       },
     );
     _subscriptions.add(subscription);
@@ -97,6 +125,9 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
       subscription.close();
     }
     _subscriptions.clear();
+    _activeWatchCount = 0;
+    _activeExecuteCount = 0;
+    _changedWatchCount = 0;
   }
 
   bool _shouldShowSplash(
@@ -132,15 +163,16 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     return config.splashBuilder(
       _getFirstError(ref, config, oneTimeSplashTask),
 
-      _hasAnyError(ref, config, oneTimeSplashTask)
-          ? _createRetryCallback(oneTimeSplashTask)
-          : null,
+      _hasAnyError(ref, config, oneTimeSplashTask) ? _createRetryCallback(oneTimeSplashTask) : null,
     );
   }
 
   VoidCallback _createRetryCallback(AsyncValue<bool> oneTimeSplashTask) {
     return () {
-      for (final taskIndex in _activeExecuteTasks.keys) {
+      final config = ref.read(_splashConfigProvider);
+      final taskCount = config?.reactiveTasks.length ?? 0;
+
+      for (int taskIndex = 0; taskIndex < taskCount; taskIndex++) {
         ref.invalidate(_reactiveSplashTasksProvider(taskIndex));
         ref.invalidate(_reactiveSplashTasksExecuteProvider(taskIndex));
       }
@@ -149,14 +181,15 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
         ref.invalidate(_oneTimeSplashTasksProvider);
       }
 
-      setState(() {
-        _activeExecuteTasks.clear();
-        _activeWatchValues.clear();
-        _changedWatchValues.clear();
-      });
+      // Reset counters - no need to clear lists as they'll be reinitialized
+      _activeWatchCount = 0;
+      _activeExecuteCount = 0;
+      _changedWatchCount = 0;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _setupListeners();
+        // Trigger rebuild after listeners are set up
+        if (mounted) setState(() {});
       });
     };
   }

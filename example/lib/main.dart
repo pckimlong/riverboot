@@ -34,10 +34,7 @@ void main() {
                     children: [
                       Text('Failed to start:\n${error.error}'),
                       const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: retry,
-                        child: const Text('Retry'),
-                      ),
+                      ElevatedButton(onPressed: retry, child: const Text('Retry')),
                     ],
                   ),
           ),
@@ -70,8 +67,7 @@ class _RiverbootExampleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Riverboot Example',
       theme: ThemeData(primarySwatch: Colors.indigo),
-      builder: (context, child) =>
-          SplashBuilder(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => SplashBuilder(child: child ?? const SizedBox.shrink()),
       home: const _HomePage(),
     );
   }
