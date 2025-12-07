@@ -281,6 +281,92 @@ void main() {
       expect(find.text('Error type: StateError'), findsOneWidget);
     });
 
+    testWidgets('error state does not show splash when trigger unchanged', (tester) async {
+      // This tests the fix: when reactive task errors without trigger change,
+      // it should go directly to error screen without flashing splash
+      var runCount = 0;
+      var splashBuildCount = 0;
+      var errorScreenShown = false;
+
+      final triggerNotifier = ValueNotifier<int>(0);
+
+      final triggerProvider = Provider<int>((ref) {
+        return triggerNotifier.value;
+      });
+
+      // Provider that will error on second run (without trigger change)
+      var shouldError = false;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            splashConfigProvider.overrideWithValue(
+              SplashConfig(
+                splashBuilder: (error, retry) {
+                  if (error != null) {
+                    errorScreenShown = true;
+                    return ElevatedButton(
+                      onPressed: retry,
+                      child: const Text('Error - Retry'),
+                    );
+                  }
+                  splashBuildCount++;
+                  return const Text('Splash');
+                },
+                reactiveTask: ReactiveTask(
+                  trigger: (ref) => ref.watch(triggerProvider),
+                  run: (ref) async {
+                    runCount++;
+                    // Error if shouldError is true
+                    if (shouldError) {
+                      throw Exception('Intentional error');
+                    }
+                    await Future.delayed(const Duration(milliseconds: 10));
+                  },
+                ),
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: SplashBuilder(child: Text('Content')),
+          ),
+        ),
+      );
+
+      // Initial load - splash shown, then content
+      await tester.pumpAndSettle();
+      expect(find.text('Content'), findsOneWidget);
+      expect(runCount, 1);
+      final initialSplashCount = splashBuildCount;
+
+      // Now trigger an error WITHOUT changing the trigger
+      // This simulates a dependency of run() causing a re-run that errors
+      final container = ProviderScope.containerOf(
+        tester.element(find.text('Content')),
+      );
+
+      // Set error flag and invalidate run provider to simulate re-run
+      shouldError = true;
+      container.invalidate(reactiveTaskRunProvider);
+
+      // Pump to process the error
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      // Error screen should be shown
+      expect(errorScreenShown, isTrue);
+      expect(find.text('Error - Retry'), findsOneWidget);
+
+      // CRITICAL: Splash should NOT have been shown again
+      // (splashBuildCount should not have increased)
+      expect(
+        splashBuildCount,
+        initialSplashCount,
+        reason: 'Splash should not show when error occurs without trigger change',
+      );
+    });
+
     test('parallel execution fails fast with eagerError', () async {
       final taskStartOrder = <int>[];
       final taskCompleteOrder = <int>[];
