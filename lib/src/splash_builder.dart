@@ -3,33 +3,60 @@ part of 'src.dart';
 /// A widget that shows a splash screen while tasks are loading.
 ///
 /// Place this in your [MaterialApp] or [CupertinoApp] builder function.
-class SplashBuilder extends ConsumerWidget {
+class SplashBuilder extends ConsumerStatefulWidget {
   const SplashBuilder({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SplashBuilder> createState() => _SplashBuilderState();
+}
+
+class _SplashBuilderState extends ConsumerState<SplashBuilder> {
+  /// Tracks whether the current reactive task refresh was caused by a trigger change.
+  /// This allows us to distinguish between trigger-caused refreshes (show splash)
+  /// and other refreshes like errors or dependency changes (don't show splash).
+  bool _triggerCausedRefresh = false;
+
+  @override
+  Widget build(BuildContext context) {
     final config = ref.watch(_splashConfigProvider);
     if (config == null) {
-      return child;
+      return widget.child;
     }
 
     final oneTimeTask = ref.watch(_splashTasksProvider);
 
-    // Listen to trigger - when it changes, invalidate run provider (sets isRefreshing)
+    // Listen to trigger - when it changes, mark as trigger-caused and invalidate
     ref.listen(_reactiveTaskTriggerProvider, (_, _) {
+      _triggerCausedRefresh = true;
       ref.invalidate(_reactiveTaskRunProvider);
     });
 
     final reactiveTaskRun = ref.watch(_reactiveTaskRunProvider);
 
+    // Clear trigger flag once reactive task completes (has value or error)
+    if ((reactiveTaskRun.hasValue || reactiveTaskRun.hasError) && _triggerCausedRefresh) {
+      // Use Future.microtask to avoid modifying state during build
+      Future.microtask(() {
+        if (mounted) {
+          _triggerCausedRefresh = false;
+        }
+      });
+    }
+
     // One-time tasks: once completed, never show splash again (unless manual retry)
     final oneTimeComplete = oneTimeTask.hasValue && !oneTimeTask.isRefreshing;
 
-    // Reactive task: show splash only on isRefreshing (trigger changed or manual retry)
-    // isReloading (run's own dependencies) won't show splash
-    final reactiveComplete = reactiveTaskRun.hasValue && !reactiveTaskRun.isRefreshing;
+    // Reactive task: show splash only on trigger-caused refresh
+    // - Initial load: !hasValue && !hasError (show splash)
+    // - Trigger change: _triggerCausedRefresh && isRefreshing (show splash)
+    // - Error without trigger change: hasError && !_triggerCausedRefresh (don't show splash)
+    // - Dependency reload: isReloading (don't show splash - handled by isRefreshing check)
+    final reactiveComplete =
+        reactiveTaskRun.hasValue ||
+        (reactiveTaskRun.hasError && !_triggerCausedRefresh) ||
+        (reactiveTaskRun.isRefreshing && !_triggerCausedRefresh);
 
     final isComplete = oneTimeComplete && reactiveComplete;
 
@@ -42,6 +69,7 @@ class SplashBuilder extends ConsumerWidget {
 
     if (error != null) {
       return config.splashBuilder(error, () {
+        _triggerCausedRefresh = true;
         ref.invalidate(_splashTasksProvider);
         ref.invalidate(_reactiveTaskRunProvider);
       });
@@ -51,7 +79,7 @@ class SplashBuilder extends ConsumerWidget {
       isComplete: isComplete,
       config: config,
       splashBuilder: (context) => config.splashBuilder(null, null),
-      child: child,
+      child: widget.child,
     );
   }
 }
