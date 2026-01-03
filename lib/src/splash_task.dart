@@ -40,16 +40,23 @@ final _splashTasksProvider = FutureProvider<void>((ref) async {
   }
 });
 
-/// Watches the trigger - creates reactive dependency
-final _reactiveTaskTriggerProvider = Provider<void>((ref) {
+/// Watches the trigger - creates reactive dependency.
+///
+/// Returns a new [Object] each time to ensure [ref.listen] fires when
+/// dependencies change. Using `Provider<void>` would not work because
+/// void always equals void, so the listener would never fire.
+final _reactiveTaskTriggerProvider = Provider<Object>((ref) {
   final config = ref.watch(_splashConfigProvider);
-  if (config == null) return;
+  if (config == null) return Object();
 
   final reactiveTask = config.reactiveTask;
-  if (reactiveTask == null) return;
+  if (reactiveTask == null) return Object();
 
   // Call trigger to establish watches
   reactiveTask.trigger(ref);
+
+  // Return a new Object to ensure listener fires on every rebuild
+  return Object();
 });
 
 /// Executes the run function - invalidated by SplashBuilder when trigger changes
