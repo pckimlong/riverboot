@@ -1,3 +1,11 @@
+## Unreleased
+
+* Fix `SplashBuilder` so reactive errors only take over when they block bootstrap:
+  * initial reactive run failure (no previous value), or
+  * trigger-caused reactive refresh failure.
+* Non-trigger runtime reactive failures after successful bootstrap no longer replace app content with splash error UI.
+* Add tests for reactive error visibility rules.
+
 ## 0.0.1
 
 * Initial release

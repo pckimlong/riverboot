@@ -1,5 +1,14 @@
 part of 'src.dart';
 
+@visibleForTesting
+bool shouldDisplayReactiveTaskError({
+  required AsyncValue<void> reactiveTaskRun,
+  required bool triggerCausedRefresh,
+}) {
+  return reactiveTaskRun.hasError &&
+      (triggerCausedRefresh || !reactiveTaskRun.hasValue);
+}
+
 /// A widget that shows a splash screen while tasks are loading.
 ///
 /// Place this in your [MaterialApp] or [CupertinoApp] builder function.
@@ -36,7 +45,8 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     final reactiveTaskRun = ref.watch(_reactiveTaskRunProvider);
 
     // Clear trigger flag once reactive task completes (has value or error)
-    if ((reactiveTaskRun.hasValue || reactiveTaskRun.hasError) && _triggerCausedRefresh) {
+    if ((reactiveTaskRun.hasValue || reactiveTaskRun.hasError) &&
+        _triggerCausedRefresh) {
       // Use Future.microtask to avoid modifying state during build
       Future.microtask(() {
         if (mounted) {
@@ -60,11 +70,25 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
 
     final isComplete = oneTimeComplete && reactiveComplete;
 
-    // Check for errors - prioritize one-time task errors
+    // Check for errors - prioritize one-time task errors.
+    // Reactive errors should take over only when they block boot:
+    // - initial reactive run failed (no previous successful value), or
+    // - trigger-caused refresh failed.
+    final showReactiveError = shouldDisplayReactiveTaskError(
+      reactiveTaskRun: reactiveTaskRun,
+      triggerCausedRefresh: _triggerCausedRefresh,
+    );
+
     final error = oneTimeTask.hasError
-        ? SplashTaskError(error: oneTimeTask.error!, stack: oneTimeTask.stackTrace!)
-        : reactiveTaskRun.hasError
-        ? SplashTaskError(error: reactiveTaskRun.error!, stack: reactiveTaskRun.stackTrace!)
+        ? SplashTaskError(
+            error: oneTimeTask.error!,
+            stack: oneTimeTask.stackTrace!,
+          )
+        : showReactiveError
+        ? SplashTaskError(
+            error: reactiveTaskRun.error!,
+            stack: reactiveTaskRun.stackTrace!,
+          )
         : null;
 
     if (error != null) {
@@ -139,7 +163,8 @@ class _SplashTransition extends StatefulWidget {
   State<_SplashTransition> createState() => _SplashTransitionState();
 }
 
-class _SplashTransitionState extends State<_SplashTransition> with SingleTickerProviderStateMixin {
+class _SplashTransitionState extends State<_SplashTransition>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _fadeAnimation;
   bool _showChild = false;
@@ -148,8 +173,14 @@ class _SplashTransitionState extends State<_SplashTransition> with SingleTickerP
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(duration: widget.config.fadeDuration, vsync: this);
-    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _controller = AnimationController(
+      duration: widget.config.fadeDuration,
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOut,
+    );
     _controller.addStatusListener(_onAnimationEnd);
 
     if (widget.isComplete) {
