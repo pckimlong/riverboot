@@ -23,15 +23,14 @@ class Riverboot {
 
     List<Override> overrides = const [],
     List<ProviderObserver>? observers,
-    bool Function(Object, StackTrace)? onPlatformDispatchError,
+    bool Function(Object error, StackTrace stack)? onPlatformDispatchError,
     void Function(WidgetRef ref)? earlyEagerInitializer,
     void Function(Object error, StackTrace stack)? onError,
   }) async {
     final container = ProviderContainer(
       parent: parent,
       overrides: [
-        if (splashConfig != null)
-          _splashConfigProvider.overrideWithValue(splashConfig),
+        if (splashConfig != null) _splashConfigProvider.overrideWithValue(splashConfig),
         ...overrides,
       ],
       observers: observers,

@@ -281,90 +281,42 @@ void main() {
       expect(find.text('Error type: StateError'), findsOneWidget);
     });
 
-    testWidgets('error state does not show splash when trigger unchanged', (tester) async {
-      // This tests the fix: when reactive task errors without trigger change,
-      // it should go directly to error screen without flashing splash
-      var runCount = 0;
-      var splashBuildCount = 0;
-      var errorScreenShown = false;
+    test(
+      'runtime reactive error is hidden when previous value exists',
+      () {
+        final runtimeError =
+            const AsyncError<void>(
+              'runtime error',
+              StackTrace.empty,
+            )
+            // ignore: invalid_use_of_internal_member
+            .copyWithPrevious(const AsyncData<void>(null));
 
-      final triggerNotifier = ValueNotifier<int>(0);
+        final shouldShow = shouldDisplayReactiveTaskError(
+          reactiveTaskRun: runtimeError,
+          triggerCausedRefresh: false,
+        );
 
-      final triggerProvider = Provider<int>((ref) {
-        return triggerNotifier.value;
-      });
+        expect(runtimeError.hasError, isTrue);
+        expect(runtimeError.hasValue, isTrue);
+        expect(shouldShow, isFalse);
+      },
+    );
 
-      // Provider that will error on second run (without trigger change)
-      var shouldError = false;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (error, retry) {
-                  if (error != null) {
-                    errorScreenShown = true;
-                    return ElevatedButton(
-                      onPressed: retry,
-                      child: const Text('Error - Retry'),
-                    );
-                  }
-                  splashBuildCount++;
-                  return const Text('Splash');
-                },
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) => ref.watch(triggerProvider),
-                  run: (ref) async {
-                    runCount++;
-                    // Error if shouldError is true
-                    if (shouldError) {
-                      throw Exception('Intentional error');
-                    }
-                    await Future.delayed(const Duration(milliseconds: 10));
-                  },
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
+    test('initial reactive error is shown when no previous value exists', () {
+      const initialError = AsyncError<void>(
+        'initial error',
+        StackTrace.empty,
       );
 
-      // Initial load - splash shown, then content
-      await tester.pumpAndSettle();
-      expect(find.text('Content'), findsOneWidget);
-      expect(runCount, 1);
-      final initialSplashCount = splashBuildCount;
-
-      // Now trigger an error WITHOUT changing the trigger
-      // This simulates a dependency of run() causing a re-run that errors
-      final container = ProviderScope.containerOf(
-        tester.element(find.text('Content')),
+      final shouldShow = shouldDisplayReactiveTaskError(
+        reactiveTaskRun: initialError,
+        triggerCausedRefresh: false,
       );
 
-      // Set error flag and invalidate run provider to simulate re-run
-      shouldError = true;
-      container.invalidate(reactiveTaskRunProvider);
-
-      // Pump to process the error
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      // Error screen should be shown
-      expect(errorScreenShown, isTrue);
-      expect(find.text('Error - Retry'), findsOneWidget);
-
-      // CRITICAL: Splash should NOT have been shown again
-      // (splashBuildCount should not have increased)
-      expect(
-        splashBuildCount,
-        initialSplashCount,
-        reason: 'Splash should not show when error occurs without trigger change',
-      );
+      expect(initialError.hasError, isTrue);
+      expect(initialError.hasValue, isFalse);
+      expect(shouldShow, isTrue);
     });
 
     test('parallel execution fails fast with eagerError', () async {
@@ -482,24 +434,27 @@ void main() {
       expect(stopwatch.elapsed, greaterThanOrEqualTo(minimumDuration));
     });
 
-    test('zero tasks with zero minimum duration completes immediately', () async {
-      final container = ProviderContainer.test(
-        overrides: [
-          splashConfigProvider.overrideWithValue(
-            SplashConfig(
-              splashBuilder: (_, _) => const SizedBox.shrink(),
-              minimumDuration: Duration.zero,
-              tasks: [],
+    test(
+      'zero tasks with zero minimum duration completes immediately',
+      () async {
+        final container = ProviderContainer.test(
+          overrides: [
+            splashConfigProvider.overrideWithValue(
+              SplashConfig(
+                splashBuilder: (_, _) => const SizedBox.shrink(),
+                minimumDuration: Duration.zero,
+                tasks: [],
+              ),
             ),
-          ),
-        ],
-      );
+          ],
+        );
 
-      final stopwatch = Stopwatch()..start();
-      await container.read(splashTasksProvider.future);
-      stopwatch.stop();
+        final stopwatch = Stopwatch()..start();
+        await container.read(splashTasksProvider.future);
+        stopwatch.stop();
 
-      expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 50)));
-    });
+        expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 50)));
+      },
+    );
   });
 }

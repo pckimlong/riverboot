@@ -98,7 +98,7 @@ reactiveTask: ReactiveTask(
 ),
 ```
 
-**Key behavior:** Only `trigger` changes show splash. Using `ref.watch()` in `run` keeps providers alive and re-runs silently without splash.
+**Key behavior:** Only `trigger` changes show splash. Using `ref.watch()` in `run` keeps providers alive and re-runs silently without splash. If a non-trigger runtime refresh fails after a successful reactive run, Riverboot keeps rendering your app content instead of taking over with the splash error screen.
 
 ## Retry Support
 
