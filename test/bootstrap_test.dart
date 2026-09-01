@@ -9,7 +9,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Riverboot.initialize', () {
-    testWidgets('initializes app with no splash config shows child directly', (tester) async {
+    testWidgets('initializes app with no splash config shows child directly', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -83,7 +85,9 @@ void main() {
   });
 
   group('SplashBuilder edge cases', () {
-    testWidgets('prioritizes one-time task errors over reactive task errors', (tester) async {
+    testWidgets('prioritizes one-time task errors over reactive task errors', (
+      tester,
+    ) async {
       SplashTaskError? capturedError;
 
       await tester.pumpWidget(
@@ -122,7 +126,9 @@ void main() {
       expect(capturedError!.error.toString(), contains('one-time error'));
     });
 
-    testWidgets('shows reactive task error when one-time tasks succeed', (tester) async {
+    testWidgets('shows reactive task error when one-time tasks succeed', (
+      tester,
+    ) async {
       SplashTaskError? capturedError;
 
       await tester.pumpWidget(
@@ -193,7 +199,9 @@ void main() {
       expect(find.text('Content'), findsOneWidget);
     });
 
-    testWidgets('shows content when both tasks and reactive task succeed', (tester) async {
+    testWidgets('shows content when both tasks and reactive task succeed', (
+      tester,
+    ) async {
       var oneTimeRan = false;
       var reactiveRan = false;
 
@@ -230,7 +238,9 @@ void main() {
       expect(find.text('Content'), findsOneWidget);
     });
 
-    testWidgets('retry invalidates both one-time and reactive tasks', (tester) async {
+    testWidgets('retry invalidates both one-time and reactive tasks', (
+      tester,
+    ) async {
       var oneTimeAttempts = 0;
       var reactiveAttempts = 0;
 
@@ -329,7 +339,8 @@ void main() {
           return Column(
             children: [
               if (error != null) Text('Error: ${error.error}'),
-              if (retry != null) ElevatedButton(onPressed: retry, child: const Text('Retry')),
+              if (retry != null)
+                ElevatedButton(onPressed: retry, child: const Text('Retry')),
             ],
           );
         },
@@ -424,7 +435,9 @@ void main() {
               tasks: [
                 for (var i = 0; i < 10; i++)
                   (ref) async {
-                    await Future.delayed(Duration(milliseconds: (i + 1) * 5)); // Variable delays
+                    await Future.delayed(
+                      Duration(milliseconds: (i + 1) * 5),
+                    ); // Variable delays
                     completedTasks++;
                   },
               ],
@@ -448,7 +461,8 @@ void main() {
               splashBuilder: (_, _) => const SizedBox.shrink(),
               minimumDuration: minimumDuration,
               tasks: [
-                (ref) async => await Future.delayed(taskDuration), // Task takes longer
+                (ref) async =>
+                    await Future.delayed(taskDuration), // Task takes longer
               ],
             ),
           ),

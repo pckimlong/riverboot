@@ -276,7 +276,9 @@ void main() {
       expect(find.text('Splash'), findsNothing);
     });
 
-    testWidgets('shows error and retry button on one-time task failure', (tester) async {
+    testWidgets('shows error and retry button on one-time task failure', (
+      tester,
+    ) async {
       SplashTaskError? capturedError;
       VoidCallback? capturedRetry;
 
@@ -292,7 +294,10 @@ void main() {
                     children: [
                       if (error != null) Text('Error: ${error.error}'),
                       if (retry != null)
-                        ElevatedButton(onPressed: retry, child: const Text('Retry')),
+                        ElevatedButton(
+                          onPressed: retry,
+                          child: const Text('Retry'),
+                        ),
                     ],
                   );
                 },
@@ -371,7 +376,9 @@ void main() {
   });
 
   group('ReactiveTask', () {
-    testWidgets('runs on initial load along with one-time tasks', (tester) async {
+    testWidgets('runs on initial load along with one-time tasks', (
+      tester,
+    ) async {
       var oneTimeTaskRan = false;
       var reactiveTaskRan = false;
 
@@ -410,7 +417,9 @@ void main() {
       expect(find.text('Content'), findsOneWidget);
     });
 
-    testWidgets('run has full ref access (read, invalidate, onDispose)', (tester) async {
+    testWidgets('run has full ref access (read, invalidate, onDispose)', (
+      tester,
+    ) async {
       int? readValue;
 
       await tester.pumpWidget(
@@ -532,7 +541,9 @@ void main() {
       expect(find.text('Content'), findsOneWidget);
     });
 
-    testWidgets('one-time tasks and reactive task both must complete', (tester) async {
+    testWidgets('one-time tasks and reactive task both must complete', (
+      tester,
+    ) async {
       final oneTimeCompleter = Completer<void>();
       final reactiveCompleter = Completer<void>();
 
