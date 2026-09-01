@@ -10,7 +10,7 @@ void main() {
 
   group('SplashConfig', () {
     test('creates immutable tasks list', () {
-      final mutableList = <Future<void> Function(Ref)>[(ref) async {}];
+      final mutableList = <SplashTask>[(ref) async {}];
       final config = SplashConfig(
         splashBuilder: (_, _) => const SizedBox.shrink(),
         tasks: mutableList,

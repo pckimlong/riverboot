@@ -8,7 +8,10 @@ error occurs.
 ## Highlights
 - **Turn-key splash orchestration** – centralise initialization logic, display
   progress, and surface errors with a single builder.
-- **One-time tasks** – run setup steps once at app start.
+- **Isolated startup tasks** – gate initial readiness and rerun only the task
+  whose declared dependency changed.
+- **Task-scoped provider policies** – choose whether a dependency reload is
+  silent, blocking, or retained without rerunning its task.
 - **Reactive tasks** – re-run when watched providers change (e.g., auth state).
 - **Parallel execution** – run tasks sequentially or concurrently.
 - **Minimum splash duration** – keep animations on screen for a set amount of
@@ -70,13 +73,50 @@ void main() {
 Add `SplashBuilder` to your `MaterialApp` (or `CupertinoApp`) `builder` so the
 splash UI can take over while tasks are in-flight.
 
+## Task-scoped provider policies
+
+Every configured task has an isolated provider lifecycle and receives a
+`SplashTaskRef`:
+
+```dart
+tasks: [
+  (ref) async {
+    // A later auth change reruns this task and restores splash.
+    final authenticated = await ref.watchForSplash(authProvider.future);
+
+    if (authenticated) {
+      // Required initially and kept alive, but later profile refreshes do not
+      // rerun this task or restore splash.
+      ref.invalidateOnRetry(profileProvider);
+      await ref.wait(profileProvider.future);
+
+      // Start and retain background data without awaiting it.
+      ref.retain(productListProvider);
+    }
+  },
+],
+```
+
+| Method | Later provider change | Splash behavior |
+|---|---|---|
+| `watch` | Reruns only the owning task | Keeps app visible |
+| `watchForSplash` | Reruns only the owning task | Restores splash |
+| `wait` | Does not rerun the task | Awaits initial/current value only |
+| `retain` | Does not rerun the task | Initializes and keeps provider alive |
+| `read` | Does not rerun the task | One-shot read without retention |
+
+Use `invalidateOnRetry(provider)` when a failed provider caches its error and
+must be invalidated before the task is attempted again.
+
 ## Tasks vs ReactiveTask
 
 | | `tasks` | `reactiveTask` |
 |---|---------|-----------------|
-| **When** | Once at app start | When trigger changes |
-| **Use for** | Init services, load config | User session data |
-| **Shows splash** | Only on first run or manual retry | Every time trigger changes |
+| **When** | Initially and when a watched dependency changes | When trigger changes |
+| **Use for** | Init, hydration, and task-scoped provider policies | Existing trigger/run workflows |
+| **Shows splash** | Initially, on retry, or through `watchForSplash` | Every time trigger changes |
+
+`ReactiveTask` remains available while the task-scoped API is evaluated.
 
 ### ReactiveTask
 
@@ -102,25 +142,20 @@ reactiveTask: ReactiveTask(
 
 ## Retry Support
 
-When a task fails, the splash screen shows an error with a retry button. Use
-`ref.onDispose()` to register cleanup that invalidates providers on retry:
+When a task fails, the splash screen shows an error with a retry button.
+Register providers whose cached state must be invalidated before retry:
 
 ```dart
 tasks: [
   (ref) async {
-    // Register cleanup FIRST - before any async work
-    ref.onDispose(() {
-      ref.invalidate(myProvider);
-    });
-
-    // Then do the work
-    await ref.read(myProvider.future);
+    ref.invalidateOnRetry(myProvider);
+    await ref.wait(myProvider.future);
   },
 ],
 ```
 
-**Why this works:** When retry is triggered, the splash provider is invalidated,
-which calls all registered `onDispose` callbacks.
+Riverboot invalidates only the failed task's registered dependencies before
+executing that task again.
 
 ## Example Application
 A full example lives in `example/lib/main.dart`. Run it with:

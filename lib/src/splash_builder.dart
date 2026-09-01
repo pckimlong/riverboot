@@ -35,6 +35,9 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     }
 
     final oneTimeTask = ref.watch(_splashTasksProvider);
+    ref.watch(_splashTaskCoordinatorProvider);
+    final taskCoordinator = ref.read(_splashTaskCoordinatorProvider.notifier);
+    final hasBlockingTask = taskCoordinator.hasBlockingTask;
 
     // Listen to trigger - when it changes, mark as trigger-caused and invalidate
     ref.listen(_reactiveTaskTriggerProvider, (_, _) {
@@ -55,8 +58,15 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
       });
     }
 
-    // One-time tasks: once completed, never show splash again (unless manual retry)
-    final oneTimeComplete = oneTimeTask.hasValue && !oneTimeTask.isRefreshing;
+    // A normal watched dependency reload remains behind the application. A
+    // watchForSplash reload explicitly blocks until the aggregate settles.
+    final oneTimeComplete = hasBlockingTask
+        ? !oneTimeTask.isLoading && !oneTimeTask.hasError
+        : oneTimeTask.hasValue;
+
+    if (hasBlockingTask && oneTimeTask.hasValue && !oneTimeTask.isLoading) {
+      Future.microtask(taskCoordinator.clearBlockingTasks);
+    }
 
     // Reactive task: show splash only on trigger-caused refresh
     // - Initial load: !hasValue && !hasError (show splash)
@@ -79,7 +89,9 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
       triggerCausedRefresh: _triggerCausedRefresh,
     );
 
-    final error = oneTimeTask.hasError
+    final showTaskError =
+        oneTimeTask.hasError && (hasBlockingTask || !oneTimeTask.hasValue);
+    final error = showTaskError
         ? SplashTaskError(
             error: oneTimeTask.error!,
             stack: oneTimeTask.stackTrace!,
@@ -94,6 +106,7 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
     if (error != null) {
       return config.splashBuilder(error, () {
         _triggerCausedRefresh = true;
+        taskCoordinator.retryFailedTasks();
         ref.invalidate(_splashTasksProvider);
         ref.invalidate(_reactiveTaskRunProvider);
       });

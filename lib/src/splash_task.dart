@@ -4,7 +4,33 @@ final _splashConfigProvider = Provider<SplashConfig?>(
   (ref) => throw UnimplementedError(),
 );
 
-/// One-time tasks - run once at app start
+final _splashTaskCoordinatorProvider =
+    NotifierProvider<_SplashTaskCoordinator, int>(_SplashTaskCoordinator.new);
+
+final _splashTaskProvider = FutureProvider.family<void, _SplashTaskKey>(
+  (ref, key) async {
+    final coordinator = ref.read(_splashTaskCoordinatorProvider.notifier);
+    coordinator.begin(key);
+
+    final taskRef = _SplashTaskRef(ref, key);
+    try {
+      await key.config.tasks[key.index](taskRef);
+      if (ref.mounted) {
+        coordinator.succeed(key);
+      }
+    } catch (error, stack) {
+      if (ref.mounted) {
+        coordinator.fail(key);
+      }
+      Error.throwWithStackTrace(error, stack);
+    }
+  },
+  // The aggregate provider owns Riverboot's retry/error lifecycle. Allowing
+  // both layers to retry would keep the aggregate pending behind a child retry.
+  retry: (_, _) => null,
+);
+
+/// Aggregates the isolated splash tasks.
 final _splashTasksProvider = FutureProvider<void>((ref) async {
   final config = ref.watch(_splashConfigProvider);
   if (config == null) return;
@@ -21,12 +47,19 @@ final _splashTasksProvider = FutureProvider<void>((ref) async {
   if (tasks.isNotEmpty) {
     if (config.runTasksInParallel) {
       await Future.wait(
-        [for (final task in tasks) task(ref)],
+        [
+          for (var index = 0; index < tasks.length; index++)
+            ref.watch(
+              _splashTaskProvider(_SplashTaskKey(config, index)).future,
+            ),
+        ],
         eagerError: true,
       );
     } else {
-      for (final task in tasks) {
-        await task(ref);
+      for (var index = 0; index < tasks.length; index++) {
+        await ref.watch(
+          _splashTaskProvider(_SplashTaskKey(config, index)).future,
+        );
       }
     }
   }
@@ -79,6 +112,180 @@ FutureProvider<void> get splashTasksProvider => _splashTasksProvider;
 
 @visibleForTesting
 FutureProvider<void> get reactiveTaskRunProvider => _reactiveTaskRunProvider;
+
+@visibleForTesting
+FutureProvider<void> splashTaskProvider(SplashConfig config, int index) =>
+    _splashTaskProvider(_SplashTaskKey(config, index));
+
+typedef SplashTask = Future<void> Function(SplashTaskRef ref);
+
+/// Riverpod access scoped to a single splash task.
+///
+/// The methods make the task's splash and lifecycle policy explicit:
+///
+/// - [watch] reruns the owning task without showing splash after initial boot.
+/// - [watchForSplash] reruns the owning task and shows splash.
+/// - [wait] awaits and retains an async provider without rerunning the task.
+/// - [retain] initializes and retains a provider without rerunning the task.
+/// - [read] performs a one-shot read without retaining the provider.
+abstract interface class SplashTaskRef {
+  /// Whether the isolated task provider is still active.
+  bool get mounted;
+
+  /// Watches [provider] and silently reloads only this task when it changes.
+  T watch<T>(ProviderListenable<T> provider);
+
+  /// Watches [provider] and restores splash while this task reloads.
+  T watchForSplash<T>(ProviderListenable<T> provider);
+
+  /// Initializes and keeps [provider] alive without making it a dependency.
+  T retain<T>(ProviderListenable<T> provider);
+
+  /// Awaits and retains [provider] without making it a task dependency.
+  Future<T> wait<T>(ProviderListenable<Future<T>> provider);
+
+  /// Reads [provider] once without retaining it or making it a dependency.
+  T read<T>(ProviderListenable<T> provider);
+
+  /// Invalidates [provider].
+  void invalidate(ProviderOrFamily provider);
+
+  /// Invalidates [provider] before this failed task is manually retried.
+  void invalidateOnRetry(ProviderOrFamily provider);
+
+  /// Registers cleanup for this isolated task provider.
+  void onDispose(void Function() callback);
+}
+
+final class _SplashTaskRef implements SplashTaskRef {
+  _SplashTaskRef(this._ref, this._key);
+
+  final Ref _ref;
+  final _SplashTaskKey _key;
+
+  @override
+  bool get mounted => _ref.mounted;
+
+  @override
+  T watch<T>(ProviderListenable<T> provider) => _ref.watch(provider);
+
+  @override
+  T watchForSplash<T>(ProviderListenable<T> provider) {
+    void reloadTask() {
+      final coordinator = _ref.read(_splashTaskCoordinatorProvider.notifier);
+      coordinator.block(_key);
+      _ref.invalidateSelf(asReload: true);
+    }
+
+    final subscription = _ref.listen<T>(
+      provider,
+      (_, _) => reloadTask(),
+      onError: (_, _) => reloadTask(),
+    );
+    return subscription.read();
+  }
+
+  @override
+  T retain<T>(ProviderListenable<T> provider) {
+    final subscription = _ref.listen<T>(provider, (_, _) {});
+    return subscription.read();
+  }
+
+  @override
+  Future<T> wait<T>(ProviderListenable<Future<T>> provider) => retain(provider);
+
+  @override
+  T read<T>(ProviderListenable<T> provider) => _ref.read(provider);
+
+  @override
+  void invalidate(ProviderOrFamily provider) => _ref.invalidate(provider);
+
+  @override
+  void invalidateOnRetry(ProviderOrFamily provider) {
+    _ref
+        .read(_splashTaskCoordinatorProvider.notifier)
+        .registerRetry(_key, provider);
+  }
+
+  @override
+  void onDispose(void Function() callback) => _ref.onDispose(callback);
+}
+
+class _SplashTaskKey {
+  const _SplashTaskKey(this.config, this.index);
+
+  final SplashConfig config;
+  final int index;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _SplashTaskKey &&
+        identical(other.config, config) &&
+        other.index == index;
+  }
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(config), index);
+}
+
+class _SplashTaskCoordinator extends Notifier<int> {
+  final Set<_SplashTaskKey> _blocking = {};
+  final Set<_SplashTaskKey> _failed = {};
+  final Map<_SplashTaskKey, Set<ProviderOrFamily>> _retryDependencies = {};
+  bool _notificationScheduled = false;
+
+  bool get hasBlockingTask => _blocking.isNotEmpty;
+
+  @override
+  int build() => 0;
+
+  void begin(_SplashTaskKey key) {
+    _failed.remove(key);
+    _retryDependencies[key] = {};
+  }
+
+  void block(_SplashTaskKey key) {
+    if (_blocking.add(key)) _notify();
+  }
+
+  void registerRetry(_SplashTaskKey key, ProviderOrFamily provider) {
+    (_retryDependencies[key] ??= {}).add(provider);
+  }
+
+  void succeed(_SplashTaskKey key) {
+    _failed.remove(key);
+  }
+
+  void fail(_SplashTaskKey key) {
+    if (_failed.add(key)) _notify();
+  }
+
+  void clearBlockingTasks() {
+    if (_blocking.isEmpty) return;
+    _blocking.clear();
+    _notify();
+  }
+
+  void retryFailedTasks() {
+    final failed = _failed.toList(growable: false);
+    for (final key in failed) {
+      for (final provider
+          in _retryDependencies[key] ?? const <ProviderOrFamily>{}) {
+        ref.invalidate(provider);
+      }
+      ref.invalidate(_splashTaskProvider(key));
+    }
+  }
+
+  void _notify() {
+    if (_notificationScheduled) return;
+    _notificationScheduled = true;
+    Future.microtask(() {
+      _notificationScheduled = false;
+      if (ref.mounted) state++;
+    });
+  }
+}
 
 class SplashTaskError implements Exception {
   final Object error;
@@ -155,11 +362,14 @@ class ReactiveTask {
 
 class SplashConfig {
   /// The splash screen widget builder. For injecting splash widget
-  final Widget Function(SplashTaskError? error, VoidCallback? retry) splashBuilder;
+  final Widget Function(SplashTaskError? error, VoidCallback? retry)
+  splashBuilder;
 
-  /// One-time tasks to run during splash.
+  /// Isolated tasks that gate the initial splash.
   ///
-  /// These run once at app start and never again (unless retry is triggered).
+  /// A task can use [SplashTaskRef.watch] for silent reloads,
+  /// [SplashTaskRef.watchForSplash] for blocking reloads, and
+  /// [SplashTaskRef.wait]/[SplashTaskRef.retain] to avoid a reactive edge.
   ///
   /// ```dart
   /// tasks: [
@@ -170,19 +380,19 @@ class SplashConfig {
   /// ]
   /// ```
   ///
-  /// ## Retry Support
+  /// ## Retry support
   ///
-  /// Use [ref.onDispose] to register cleanup for retry:
+  /// Register failed dependencies that must be invalidated before retry:
   ///
   /// ```dart
   /// tasks: [
   ///   (ref) async {
-  ///     ref.onDispose(() => ref.invalidate(configProvider));
-  ///     await ref.read(configProvider.future);
+  ///     ref.invalidateOnRetry(configProvider);
+  ///     await ref.wait(configProvider.future);
   ///   },
   /// ]
   /// ```
-  final List<Future<void> Function(Ref ref)> tasks;
+  final List<SplashTask> tasks;
 
   /// Optional reactive task that re-runs when watched providers change.
   ///
@@ -223,7 +433,7 @@ class SplashConfig {
 
   SplashConfig({
     required this.splashBuilder,
-    List<Future<void> Function(Ref ref)> tasks = const [],
+    List<SplashTask> tasks = const [],
     this.reactiveTask,
     this.minimumDuration = Duration.zero,
     this.runTasksInParallel = true,

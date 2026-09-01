@@ -135,27 +135,26 @@ void main() {
     test('one-time tasks can access ref.onDispose', () async {
       var disposeCalled = false;
 
+      final config = SplashConfig(
+        splashBuilder: (_, _) => const SizedBox.shrink(),
+        tasks: [
+          (ref) async {
+            ref.onDispose(() {
+              disposeCalled = true;
+            });
+          },
+        ],
+      );
       final container = ProviderContainer.test(
         overrides: [
-          splashConfigProvider.overrideWithValue(
-            SplashConfig(
-              splashBuilder: (_, _) => const SizedBox.shrink(),
-              tasks: [
-                (ref) async {
-                  ref.onDispose(() {
-                    disposeCalled = true;
-                  });
-                },
-              ],
-            ),
-          ),
+          splashConfigProvider.overrideWithValue(config),
         ],
       );
 
       await container.read(splashTasksProvider.future);
 
-      // Invalidating should trigger dispose
-      container.invalidate(splashTasksProvider);
+      // Each task owns an isolated provider lifecycle.
+      container.invalidate(splashTaskProvider(config, 0));
       expect(disposeCalled, isTrue);
     });
 
