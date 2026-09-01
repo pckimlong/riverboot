@@ -35,33 +35,32 @@ void main() {
                     children: [
                       Text('Failed to start:\n${error.error}'),
                       const SizedBox(height: 16),
-                      ElevatedButton(onPressed: retry, child: const Text('Retry')),
+                      ElevatedButton(
+                        onPressed: retry,
+                        child: const Text('Retry'),
+                      ),
                     ],
                   ),
           ),
         );
       },
-      // One-time tasks - run once at app start
+      // Each task declares how its providers affect the splash lifecycle.
       tasks: [
         (ref) async {
-          // Initialize services, load config, etc.
           await Future.delayed(const Duration(milliseconds: 300));
-        },
-      ],
-      // Reactive task - re-runs when trigger changes, shows splash
-      reactiveTask: ReactiveTask(
-        // Only authProvider changes trigger re-run and show splash
-        trigger: (ref) => ref.watch(_authenticatedProvider),
-        // Work to execute - full ref available
-        // Using ref.watch here won't show splash (only trigger changes do)
-        run: (ref) async {
-          final authenticated = await ref.watch(_authenticatedProvider.future);
+
+          // An auth refresh reruns this task and restores the splash.
+          final authenticated = await ref.watchForSplash(
+            _authenticatedProvider.future,
+          );
           if (authenticated) {
-            // This keeps profileProvider alive, but won't show splash when it changes
-            await ref.watch(_profileProvider.future);
+            // Profile is required at startup and retained for the application,
+            // but later profile refreshes do not rerun this task or show splash.
+            ref.invalidateOnRetry(_profileProvider);
+            await ref.wait(_profileProvider.future);
           }
         },
-      ),
+      ],
     ),
   );
 }
@@ -74,7 +73,8 @@ class _RiverbootExampleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Riverboot Example',
       theme: ThemeData(primarySwatch: Colors.indigo),
-      builder: (context, child) => SplashBuilder(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) =>
+          SplashBuilder(child: child ?? const SizedBox.shrink()),
       home: const _HomePage(),
     );
   }
@@ -88,7 +88,21 @@ class _HomePage extends ConsumerWidget {
     final profile = ref.watch(_profileProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Riverboot')),
+      appBar: AppBar(
+        title: const Text('Riverboot'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh profile without splash',
+            onPressed: () => ref.invalidate(_profileProvider),
+            icon: const Icon(Icons.person_outline),
+          ),
+          IconButton(
+            tooltip: 'Refresh authentication with splash',
+            onPressed: () => ref.invalidate(_authenticatedProvider),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
       body: Center(
         child: profile.when(
           data: (name) => Text('Hello, $name!'),
