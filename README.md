@@ -12,7 +12,8 @@ error occurs.
   whose declared dependency changed.
 - **Task-scoped provider policies** – choose whether a dependency reload is
   silent, blocking, or retained without rerunning its task.
-- **Reactive tasks** – re-run when watched providers change (e.g., auth state).
+- **Reactive task dependencies** – re-run when explicitly watched providers
+  change, with per-dependency splash behavior.
 - **Parallel execution** – run tasks sequentially or concurrently.
 - **Minimum splash duration** – keep animations on screen for a set amount of
   time even when work completes instantly.
@@ -48,23 +49,17 @@ void main() {
       minimumDuration: const Duration(seconds: 1),
       splashBuilder: (error, retry) => _Splash(error: error, retry: retry),
       
-      // One-time tasks - run once at app start
       tasks: [
         (ref) async {
           await initializeServices();
-        },
-      ],
-      
-      // Reactive task - re-runs when trigger changes
-      reactiveTask: ReactiveTask(
-        trigger: (ref) => ref.watch(authProvider),
-        run: (ref) async {
-          final authenticated = await ref.watch(authProvider.future);
+
+          final authenticated = await ref.watchForSplash(authProvider.future);
           if (authenticated) {
-            await ref.watch(profileProvider.future);
+            ref.invalidateOnRetry(profileProvider);
+            await ref.wait(profileProvider.future);
           }
         },
-      ),
+      ],
     ),
   );
 }
@@ -107,38 +102,6 @@ tasks: [
 
 Use `invalidateOnRetry(provider)` when a failed provider caches its error and
 must be invalidated before the task is attempted again.
-
-## Tasks vs ReactiveTask
-
-| | `tasks` | `reactiveTask` |
-|---|---------|-----------------|
-| **When** | Initially and when a watched dependency changes | When trigger changes |
-| **Use for** | Init, hydration, and task-scoped provider policies | Existing trigger/run workflows |
-| **Shows splash** | Initially, on retry, or through `watchForSplash` | Every time trigger changes |
-
-`ReactiveTask` remains available while the task-scoped API is evaluated.
-
-### ReactiveTask
-
-When auth state changes (sign out → sign in), the reactive task re-runs and splash shows:
-
-```dart
-reactiveTask: ReactiveTask(
-  // Only this triggers re-run and shows splash
-  trigger: (ref) => ref.watch(authProvider),
-  
-  // Work to execute - full ref available
-  run: (ref) async {
-    final isAuth = await ref.watch(authProvider.future);
-    if (isAuth) {
-      // ref.watch keeps provider alive, but won't show splash when it changes
-      await ref.watch(profileProvider.future);
-    }
-  },
-),
-```
-
-**Key behavior:** Only `trigger` changes show splash. Using `ref.watch()` in `run` keeps providers alive and re-runs silently without splash. If a non-trigger runtime refresh fails after a successful reactive run, Riverboot keeps rendering your app content instead of taking over with the splash error screen.
 
 ## Retry Support
 

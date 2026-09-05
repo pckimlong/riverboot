@@ -284,7 +284,7 @@ void main() {
 
     test('a watched dependency reruns only its owning task', () async {
       final dependency = NotifierProvider<_Counter, int>(_Counter.new);
-      var reactiveRuns = 0;
+      var watchedTaskRuns = 0;
       var unrelatedRuns = 0;
 
       final container = ProviderContainer.test(
@@ -295,7 +295,7 @@ void main() {
               tasks: [
                 (ref) async {
                   ref.watch(dependency);
-                  reactiveRuns++;
+                  watchedTaskRuns++;
                 },
                 (ref) async {
                   unrelatedRuns++;
@@ -312,7 +312,7 @@ void main() {
       await container.pump();
       await container.pump();
 
-      expect(reactiveRuns, 2);
+      expect(watchedTaskRuns, 2);
       expect(unrelatedRuns, 1);
       subscription.close();
     });
