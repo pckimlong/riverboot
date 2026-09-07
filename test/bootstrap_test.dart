@@ -9,7 +9,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Riverboot.initialize', () {
-    testWidgets('initializes app with no splash config shows child directly', (tester) async {
+    testWidgets('initializes app with no splash config shows child directly', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -82,213 +84,6 @@ void main() {
     });
   });
 
-  group('SplashBuilder edge cases', () {
-    testWidgets('prioritizes one-time task errors over reactive task errors', (tester) async {
-      SplashTaskError? capturedError;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (error, retry) {
-                  capturedError = error;
-                  if (error != null) {
-                    return Text('Error: ${error.error}');
-                  }
-                  return const Text('Splash');
-                },
-                tasks: [
-                  (ref) async => throw Exception('one-time error'),
-                ],
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) {},
-                  run: (ref) async => throw Exception('reactive error'),
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
-      );
-
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      expect(capturedError, isNotNull);
-      expect(capturedError!.error.toString(), contains('one-time error'));
-    });
-
-    testWidgets('shows reactive task error when one-time tasks succeed', (tester) async {
-      SplashTaskError? capturedError;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (error, retry) {
-                  capturedError = error;
-                  if (error != null) {
-                    return Text('Error: ${error.error}');
-                  }
-                  return const Text('Splash');
-                },
-                tasks: [
-                  (ref) async {}, // Succeeds
-                ],
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) {},
-                  run: (ref) async => throw Exception('reactive error'),
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
-      );
-
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      expect(capturedError, isNotNull);
-      expect(capturedError!.error.toString(), contains('reactive error'));
-    });
-
-    testWidgets('handles empty tasks with reactive task only', (tester) async {
-      var reactiveRan = false;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (_, _) => const Text('Splash'),
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) {},
-                  run: (ref) async {
-                    reactiveRan = true;
-                  },
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
-      );
-
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      expect(reactiveRan, isTrue);
-      expect(find.text('Content'), findsOneWidget);
-    });
-
-    testWidgets('shows content when both tasks and reactive task succeed', (tester) async {
-      var oneTimeRan = false;
-      var reactiveRan = false;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (_, _) => const Text('Splash'),
-                tasks: [
-                  (ref) async {
-                    oneTimeRan = true;
-                  },
-                ],
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) {},
-                  run: (ref) async {
-                    reactiveRan = true;
-                  },
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(oneTimeRan, isTrue);
-      expect(reactiveRan, isTrue);
-      expect(find.text('Content'), findsOneWidget);
-    });
-
-    testWidgets('retry invalidates both one-time and reactive tasks', (tester) async {
-      var oneTimeAttempts = 0;
-      var reactiveAttempts = 0;
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                splashBuilder: (error, retry) {
-                  if (error != null) {
-                    return ElevatedButton(
-                      onPressed: retry,
-                      child: const Text('Retry'),
-                    );
-                  }
-                  return const Text('Splash');
-                },
-                tasks: [
-                  (ref) async {
-                    oneTimeAttempts++;
-                    if (oneTimeAttempts < 2) {
-                      throw Exception('one-time fails');
-                    }
-                  },
-                ],
-                reactiveTask: ReactiveTask(
-                  trigger: (ref) {},
-                  run: (ref) async {
-                    reactiveAttempts++;
-                  },
-                ),
-              ),
-            ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
-          ),
-        ),
-      );
-
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-
-      expect(oneTimeAttempts, 1);
-      expect(find.text('Retry'), findsOneWidget);
-
-      // Tap retry
-      await tester.tap(find.text('Retry'));
-      await tester.pumpAndSettle();
-
-      expect(oneTimeAttempts, 2);
-      // Reactive task also re-runs after retry
-      expect(reactiveAttempts, greaterThanOrEqualTo(2));
-      expect(find.text('Content'), findsOneWidget);
-    });
-  });
-
   group('SplashConfig validation', () {
     test('accepts empty tasks list by default', () {
       final config = SplashConfig(
@@ -329,21 +124,17 @@ void main() {
           return Column(
             children: [
               if (error != null) Text('Error: ${error.error}'),
-              if (retry != null) ElevatedButton(onPressed: retry, child: const Text('Retry')),
+              if (retry != null)
+                ElevatedButton(onPressed: retry, child: const Text('Retry')),
             ],
           );
         },
         tasks: [(ref) async {}],
-        reactiveTask: ReactiveTask(
-          trigger: (ref) {},
-          run: (ref) async {},
-        ),
         minimumDuration: const Duration(seconds: 2),
         runTasksInParallel: false,
       );
 
       expect(config.tasks, hasLength(1));
-      expect(config.reactiveTask, isNotNull);
       expect(config.minimumDuration, const Duration(seconds: 2));
       expect(config.runTasksInParallel, isFalse);
     });
@@ -385,32 +176,6 @@ void main() {
     });
   });
 
-  group('ReactiveTask configuration', () {
-    test('holds trigger and run functions', () {
-      void triggerFn(Ref ref) {}
-      Future<void> runFn(Ref ref) async {}
-
-      final task = ReactiveTask(
-        trigger: triggerFn,
-        run: runFn,
-      );
-
-      expect(task.trigger, same(triggerFn));
-      expect(task.run, same(runFn));
-    });
-
-    test('can be created with const constructor', () {
-      // This should compile without issues
-      const task = ReactiveTask(
-        trigger: _staticTrigger,
-        run: _staticRun,
-      );
-
-      expect(task.trigger, isNotNull);
-      expect(task.run, isNotNull);
-    });
-  });
-
   group('Provider behavior under stress', () {
     test('handles rapid successive task completions', () async {
       var completedTasks = 0;
@@ -424,7 +189,9 @@ void main() {
               tasks: [
                 for (var i = 0; i < 10; i++)
                   (ref) async {
-                    await Future.delayed(Duration(milliseconds: (i + 1) * 5)); // Variable delays
+                    await Future.delayed(
+                      Duration(milliseconds: (i + 1) * 5),
+                    ); // Variable delays
                     completedTasks++;
                   },
               ],
@@ -448,7 +215,8 @@ void main() {
               splashBuilder: (_, _) => const SizedBox.shrink(),
               minimumDuration: minimumDuration,
               tasks: [
-                (ref) async => await Future.delayed(taskDuration), // Task takes longer
+                (ref) async =>
+                    await Future.delayed(taskDuration), // Task takes longer
               ],
             ),
           ),
@@ -551,7 +319,3 @@ class _CustomError {
   final int code;
   _CustomError(this.code);
 }
-
-// Static functions for const constructor test
-void _staticTrigger(Ref ref) {}
-Future<void> _staticRun(Ref ref) async {}

@@ -1,14 +1,5 @@
 part of 'src.dart';
 
-@visibleForTesting
-bool shouldDisplayReactiveTaskError({
-  required AsyncValue<void> reactiveTaskRun,
-  required bool triggerCausedRefresh,
-}) {
-  return reactiveTaskRun.hasError &&
-      (triggerCausedRefresh || !reactiveTaskRun.hasValue);
-}
-
 /// A widget that shows a splash screen while tasks are loading.
 ///
 /// Place this in your [MaterialApp] or [CupertinoApp] builder function.
@@ -22,11 +13,6 @@ class SplashBuilder extends ConsumerStatefulWidget {
 }
 
 class _SplashBuilderState extends ConsumerState<SplashBuilder> {
-  /// Tracks whether the current reactive task refresh was caused by a trigger change.
-  /// This allows us to distinguish between trigger-caused refreshes (show splash)
-  /// and other refreshes like errors or dependency changes (don't show splash).
-  bool _triggerCausedRefresh = false;
-
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(_splashConfigProvider);
@@ -34,73 +20,39 @@ class _SplashBuilderState extends ConsumerState<SplashBuilder> {
       return widget.child;
     }
 
-    final oneTimeTask = ref.watch(_splashTasksProvider);
+    final splashTasks = ref.watch(_splashTasksProvider);
+    ref.watch(_splashTaskCoordinatorProvider);
+    final taskCoordinator = ref.read(_splashTaskCoordinatorProvider.notifier);
+    final hasBlockingTask = taskCoordinator.hasBlockingTask;
 
-    // Listen to trigger - when it changes, mark as trigger-caused and invalidate
-    ref.listen(_reactiveTaskTriggerProvider, (_, _) {
-      _triggerCausedRefresh = true;
-      ref.invalidate(_reactiveTaskRunProvider);
-    });
+    // A normal watched dependency reload remains behind the application. A
+    // watchForSplash reload explicitly blocks until the aggregate settles.
+    final tasksComplete = hasBlockingTask
+        ? !splashTasks.isLoading && !splashTasks.hasError
+        : splashTasks.hasValue;
 
-    final reactiveTaskRun = ref.watch(_reactiveTaskRunProvider);
-
-    // Clear trigger flag once reactive task completes (has value or error)
-    if ((reactiveTaskRun.hasValue || reactiveTaskRun.hasError) &&
-        _triggerCausedRefresh) {
-      // Use Future.microtask to avoid modifying state during build
-      Future.microtask(() {
-        if (mounted) {
-          _triggerCausedRefresh = false;
-        }
-      });
+    if (hasBlockingTask && splashTasks.hasValue && !splashTasks.isLoading) {
+      Future.microtask(taskCoordinator.clearBlockingTasks);
     }
 
-    // One-time tasks: once completed, never show splash again (unless manual retry)
-    final oneTimeComplete = oneTimeTask.hasValue && !oneTimeTask.isRefreshing;
-
-    // Reactive task: show splash only on trigger-caused refresh
-    // - Initial load: !hasValue && !hasError (show splash)
-    // - Trigger change: _triggerCausedRefresh && isRefreshing (show splash)
-    // - Error without trigger change: hasError && !_triggerCausedRefresh (don't show splash)
-    // - Dependency reload: isReloading (don't show splash - handled by isRefreshing check)
-    final reactiveComplete =
-        reactiveTaskRun.hasValue ||
-        (reactiveTaskRun.hasError && !_triggerCausedRefresh) ||
-        (reactiveTaskRun.isRefreshing && !_triggerCausedRefresh);
-
-    final isComplete = oneTimeComplete && reactiveComplete;
-
-    // Check for errors - prioritize one-time task errors.
-    // Reactive errors should take over only when they block boot:
-    // - initial reactive run failed (no previous successful value), or
-    // - trigger-caused refresh failed.
-    final showReactiveError = shouldDisplayReactiveTaskError(
-      reactiveTaskRun: reactiveTaskRun,
-      triggerCausedRefresh: _triggerCausedRefresh,
-    );
-
-    final error = oneTimeTask.hasError
+    final showTaskError =
+        splashTasks.hasError && (hasBlockingTask || !splashTasks.hasValue);
+    final error = showTaskError
         ? SplashTaskError(
-            error: oneTimeTask.error!,
-            stack: oneTimeTask.stackTrace!,
-          )
-        : showReactiveError
-        ? SplashTaskError(
-            error: reactiveTaskRun.error!,
-            stack: reactiveTaskRun.stackTrace!,
+            error: splashTasks.error!,
+            stack: splashTasks.stackTrace!,
           )
         : null;
 
     if (error != null) {
       return config.splashBuilder(error, () {
-        _triggerCausedRefresh = true;
+        taskCoordinator.retryFailedTasks();
         ref.invalidate(_splashTasksProvider);
-        ref.invalidate(_reactiveTaskRunProvider);
       });
     }
 
     return _SplashTransition(
-      isComplete: isComplete,
+      isComplete: tasksComplete,
       config: config,
       splashBuilder: (context) => config.splashBuilder(null, null),
       child: widget.child,

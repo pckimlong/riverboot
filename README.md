@@ -8,8 +8,12 @@ error occurs.
 ## Highlights
 - **Turn-key splash orchestration** – centralise initialization logic, display
   progress, and surface errors with a single builder.
-- **One-time tasks** – run setup steps once at app start.
-- **Reactive tasks** – re-run when watched providers change (e.g., auth state).
+- **Isolated startup tasks** – gate initial readiness and rerun only the task
+  whose declared dependency changed.
+- **Task-scoped provider policies** – choose whether a dependency reload is
+  silent, blocking, or retained without rerunning its task.
+- **Reactive task dependencies** – re-run when explicitly watched providers
+  change, with per-dependency splash behavior.
 - **Parallel execution** – run tasks sequentially or concurrently.
 - **Minimum splash duration** – keep animations on screen for a set amount of
   time even when work completes instantly.
@@ -45,23 +49,16 @@ void main() {
       minimumDuration: const Duration(seconds: 1),
       splashBuilder: (error, retry) => _Splash(error: error, retry: retry),
       
-      // One-time tasks - run once at app start
       tasks: [
         (ref) async {
           await initializeServices();
-        },
-      ],
-      
-      // Reactive task - re-runs when trigger changes
-      reactiveTask: ReactiveTask(
-        trigger: (ref) => ref.watch(authProvider),
-        run: (ref) async {
-          final authenticated = await ref.watch(authProvider.future);
+
+          final authenticated = await ref.watchForSplash(authProvider.future);
           if (authenticated) {
-            await ref.watch(profileProvider.future);
+            await ref.wait(profileProvider.future);
           }
         },
-      ),
+      ],
     ),
   );
 }
@@ -70,57 +67,73 @@ void main() {
 Add `SplashBuilder` to your `MaterialApp` (or `CupertinoApp`) `builder` so the
 splash UI can take over while tasks are in-flight.
 
-## Tasks vs ReactiveTask
+## Task-scoped provider policies
 
-| | `tasks` | `reactiveTask` |
-|---|---------|-----------------|
-| **When** | Once at app start | When trigger changes |
-| **Use for** | Init services, load config | User session data |
-| **Shows splash** | Only on first run or manual retry | Every time trigger changes |
-
-### ReactiveTask
-
-When auth state changes (sign out → sign in), the reactive task re-runs and splash shows:
-
-```dart
-reactiveTask: ReactiveTask(
-  // Only this triggers re-run and shows splash
-  trigger: (ref) => ref.watch(authProvider),
-  
-  // Work to execute - full ref available
-  run: (ref) async {
-    final isAuth = await ref.watch(authProvider.future);
-    if (isAuth) {
-      // ref.watch keeps provider alive, but won't show splash when it changes
-      await ref.watch(profileProvider.future);
-    }
-  },
-),
-```
-
-**Key behavior:** Only `trigger` changes show splash. Using `ref.watch()` in `run` keeps providers alive and re-runs silently without splash. If a non-trigger runtime refresh fails after a successful reactive run, Riverboot keeps rendering your app content instead of taking over with the splash error screen.
-
-## Retry Support
-
-When a task fails, the splash screen shows an error with a retry button. Use
-`ref.onDispose()` to register cleanup that invalidates providers on retry:
+Every configured task has an isolated provider lifecycle and receives a
+`SplashTaskRef`:
 
 ```dart
 tasks: [
   (ref) async {
-    // Register cleanup FIRST - before any async work
-    ref.onDispose(() {
-      ref.invalidate(myProvider);
-    });
+    // A later auth change reruns this task and restores splash.
+    final authenticated = await ref.watchForSplash(authProvider.future);
 
-    // Then do the work
-    await ref.read(myProvider.future);
+    if (authenticated) {
+      // Required initially and kept alive, but later profile refreshes do not
+      // rerun this task or restore splash.
+      await ref.wait(profileProvider.future);
+
+      // Start and retain background data without awaiting it.
+      ref.retain(productListProvider);
+    }
   },
 ],
 ```
 
-**Why this works:** When retry is triggered, the splash provider is invalidated,
-which calls all registered `onDispose` callbacks.
+| Method | Later provider change | Splash behavior |
+|---|---|---|
+| `watch` | Reruns only the owning task | Keeps app visible |
+| `watchForSplash` | Reruns only the owning task | Restores splash |
+| `wait` | Does not rerun the task | Awaits initial/current value only |
+| `retain` | Does not rerun the task | Initializes and keeps provider alive |
+| `read` | Does not rerun the task | One-shot read without retention |
+
+`wait` checks task validity before and after awaiting. If a watched dependency
+replaces the task, an obsolete wait stops its continuation without reporting a
+startup failure. The underlying operation itself is not cancelled.
+
+After external awaits (including futures returned by `watch` or
+`watchForSplash`), call `ensureActive()` before applying results:
+
+```dart
+final cachedId = await storage.readLocationId(org.id);
+ref.ensureActive();
+await ref.read(currentLocationIdProvider.notifier).set(cachedId);
+```
+
+Keep cache reads side-effect-free until that check. A notifier method already
+running must guard its own asynchronous mutations. Let Riverboot handle the
+internal cancellation signal; if task code catches errors, call
+`ensureActive()` before attempting recovery.
+
+## Retry Support
+
+When a task fails, the splash screen shows an error with a retry button.
+Failed `wait(provider.future)` calls automatically register that provider for
+refresh on manual retry. Successful waits keep their cached state:
+
+```dart
+tasks: [
+  (ref) async {
+    await ref.wait(myProvider.future);
+  },
+],
+```
+
+Riverboot refreshes failed awaited providers and reruns failed tasks. Use
+`invalidateOnRetry(provider)` as an explicit override for deeper cached failures
+or work outside `wait`. Automatic tracking supports refreshable expressions such
+as `.future`; selected expressions need explicit registration.
 
 ## Example Application
 A full example lives in `example/lib/main.dart`. Run it with:

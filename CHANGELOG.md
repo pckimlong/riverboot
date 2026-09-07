@@ -1,10 +1,15 @@
 ## Unreleased
 
-* Fix `SplashBuilder` so reactive errors only take over when they block bootstrap:
-  * initial reactive run failure (no previous value), or
-  * trigger-caused reactive refresh failure.
-* Non-trigger runtime reactive failures after successful bootstrap no longer replace app content with splash error UI.
-* Add tests for reactive error visibility rules.
+* Make `wait` stop obsolete task continuations without reporting startup errors.
+* Automatically refresh failed awaited providers on manual retry while retaining
+  successful dependencies.
+* Add `ensureActive()` for lifecycle checks after external asynchronous work.
+
+* Add task-scoped provider policies through `SplashTaskRef`.
+* Add `watchForSplash`, `watch`, `wait`, `retain`, and retry dependency
+  registration for isolated startup tasks.
+* Remove the legacy `ReactiveTask` trigger/run API.
+* Add coverage based on Easy Inventory's bootstrap dependency graph.
 
 ## 0.0.1
 
