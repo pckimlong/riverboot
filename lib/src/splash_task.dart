@@ -18,6 +18,9 @@ final _splashTaskProvider = FutureProvider.family<void, _SplashTaskKey>(
       if (ref.mounted) {
         coordinator.succeed(key);
       }
+    } on _ObsoleteSplashTask {
+      // A replacement execution owns readiness and error reporting now.
+      return;
     } catch (error, stack) {
       if (ref.mounted) {
         coordinator.fail(key);
@@ -98,6 +101,13 @@ abstract interface class SplashTaskRef {
   /// Whether the isolated task provider is still active.
   bool get mounted;
 
+  /// Stops this execution if its task has been replaced or disposed.
+  ///
+  /// Call after external awaits before applying their results. This cannot
+  /// cancel external work or undo side effects already in progress.
+  /// Let Riverboot handle the internal cancellation signal.
+  void ensureActive();
+
   /// Watches [provider] and silently reloads only this task when it changes.
   T watch<T>(ProviderListenable<T> provider);
 
@@ -108,6 +118,10 @@ abstract interface class SplashTaskRef {
   T retain<T>(ProviderListenable<T> provider);
 
   /// Awaits and retains [provider] without making it a task dependency.
+  ///
+  /// Stops obsolete executions before and after awaiting. Failed refreshable
+  /// expressions (such as `provider.future`) are refreshed on manual retry.
+  /// For selected expressions, use [invalidateOnRetry] explicitly.
   Future<T> wait<T>(ProviderListenable<Future<T>> provider);
 
   /// Reads [provider] once without retaining it or making it a dependency.
@@ -158,7 +172,27 @@ final class _SplashTaskRef implements SplashTaskRef {
   }
 
   @override
-  Future<T> wait<T>(ProviderListenable<Future<T>> provider) => retain(provider);
+  Future<T> wait<T>(ProviderListenable<Future<T>> provider) async {
+    ensureActive();
+    try {
+      final value = await retain(provider);
+      ensureActive();
+      return value;
+    } catch (_) {
+      ensureActive();
+      if (provider is Refreshable<Future<T>>) {
+        _ref
+            .read(_splashTaskCoordinatorProvider.notifier)
+            .registerFailedWait(_key, provider);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  void ensureActive() {
+    if (!mounted) throw const _ObsoleteSplashTask();
+  }
 
   @override
   T read<T>(ProviderListenable<T> provider) => _ref.read(provider);
@@ -175,6 +209,10 @@ final class _SplashTaskRef implements SplashTaskRef {
 
   @override
   void onDispose(void Function() callback) => _ref.onDispose(callback);
+}
+
+final class _ObsoleteSplashTask implements Exception {
+  const _ObsoleteSplashTask();
 }
 
 class _SplashTaskKey {
@@ -198,6 +236,8 @@ class _SplashTaskCoordinator extends Notifier<int> {
   final Set<_SplashTaskKey> _blocking = {};
   final Set<_SplashTaskKey> _failed = {};
   final Map<_SplashTaskKey, Set<ProviderOrFamily>> _retryDependencies = {};
+  final Map<_SplashTaskKey, Set<Refreshable<Future<Object?>>>> _failedWaits =
+      {};
   bool _notificationScheduled = false;
 
   bool get hasBlockingTask => _blocking.isNotEmpty;
@@ -208,6 +248,7 @@ class _SplashTaskCoordinator extends Notifier<int> {
   void begin(_SplashTaskKey key) {
     _failed.remove(key);
     _retryDependencies[key] = {};
+    _failedWaits[key] = {};
   }
 
   void block(_SplashTaskKey key) {
@@ -216,6 +257,13 @@ class _SplashTaskCoordinator extends Notifier<int> {
 
   void registerRetry(_SplashTaskKey key, ProviderOrFamily provider) {
     (_retryDependencies[key] ??= {}).add(provider);
+  }
+
+  void registerFailedWait(
+    _SplashTaskKey key,
+    Refreshable<Future<Object?>> provider,
+  ) {
+    (_failedWaits[key] ??= {}).add(provider);
   }
 
   void succeed(_SplashTaskKey key) {
@@ -238,6 +286,16 @@ class _SplashTaskCoordinator extends Notifier<int> {
       for (final provider
           in _retryDependencies[key] ?? const <ProviderOrFamily>{}) {
         ref.invalidate(provider);
+      }
+      for (final provider
+          in _failedWaits[key] ?? const <Refreshable<Future<Object?>>>{}) {
+        // Refresh starts the dependency immediately. Observe its error even if
+        // the retried task exits before reaching this wait again.
+        unawaited(
+          ref
+              .refresh(provider)
+              .then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
       }
       ref.invalidate(_splashTaskProvider(key));
     }
@@ -310,7 +368,8 @@ class SplashConfig {
   ///
   /// ## Retry support
   ///
-  /// Register failed dependencies that must be invalidated before retry:
+  /// Failed `wait(provider.future)` dependencies refresh automatically.
+  /// Register deeper dependencies explicitly when necessary:
   ///
   /// ```dart
   /// tasks: [

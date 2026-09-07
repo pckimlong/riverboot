@@ -317,55 +317,139 @@ void main() {
       subscription.close();
     });
 
-    testWidgets('retry invalidates registered dependencies', (tester) async {
-      var dependencyAttempts = 0;
-      final dependency = FutureProvider<int>(
-        (ref) async {
-          dependencyAttempts++;
-          if (dependencyAttempts == 1) throw Exception('first attempt');
-          return 42;
-        },
-        retry: (_, _) => null,
-      );
-
-      await tester.pumpWidget(
-        ProviderScope(
-          retry: (_, _) => null,
-          overrides: [
-            splashConfigProvider.overrideWithValue(
-              SplashConfig(
-                fadeTransition: false,
-                splashBuilder: (error, retry) => error == null
-                    ? const Text('Splash')
-                    : ElevatedButton(
-                        onPressed: retry,
-                        child: const Text('Retry'),
-                      ),
-                tasks: [
-                  (ref) async {
-                    ref.invalidateOnRetry(dependency);
-                    await ref.wait(dependency.future);
-                  },
+    for (final external in [false, true]) {
+      for (final fails in [false, true]) {
+        testWidgets(
+          'obsolete ${external ? "external await" : "wait"} '
+          '${fails ? "failure" : "success"} does not continue or show error',
+          (tester) async {
+            final source = NotifierProvider<_Counter, int>(_Counter.new);
+            final pending = Completer<int>();
+            final dependency = FutureProvider<int>(
+              (ref) => pending.future,
+              retry: (_, _) => null,
+            );
+            final applied = <int>[];
+            final finished = <int>[];
+            await tester.pumpWidget(
+              ProviderScope(
+                retry: (_, _) => null,
+                overrides: [
+                  splashConfigProvider.overrideWithValue(
+                    SplashConfig(
+                      fadeTransition: false,
+                      splashBuilder: (error, _) =>
+                          Text(error == null ? 'Splash' : 'Error'),
+                      tasks: [
+                        (ref) async {
+                          final org = ref.watch(source);
+                          try {
+                            if (org == 0) {
+                              if (external) {
+                                try {
+                                  await pending.future;
+                                } finally {
+                                  ref.ensureActive();
+                                }
+                              } else {
+                                await ref.wait(dependency.future);
+                              }
+                            }
+                            applied.add(org);
+                          } finally {
+                            finished.add(org);
+                          }
+                        },
+                      ],
+                    ),
+                  ),
                 ],
+                child: const MaterialApp(
+                  home: SplashBuilder(child: Text('Content')),
+                ),
               ),
+            );
+            await tester.pump();
+            final container = ProviderScope.containerOf(
+              tester.element(find.text('Splash')),
+            );
+            container.read(source.notifier).increment();
+            await tester.pumpAndSettle();
+            expect(applied, [1]);
+            if (fails) {
+              pending.completeError(StateError('obsolete failure'));
+            } else {
+              pending.complete(42);
+            }
+            await tester.pumpAndSettle();
+            expect(applied, [1]);
+            expect(finished, [1, 0]);
+            expect(find.text('Content'), findsOneWidget);
+            expect(find.text('Error'), findsNothing);
+          },
+        );
+      }
+    }
+
+    for (final explicit in [false, true]) {
+      testWidgets('retry refreshes failed waits (explicit: $explicit)', (
+        tester,
+      ) async {
+        var successfulAttempts = 0;
+        final successful = FutureProvider<int>(
+          (ref) async => ++successfulAttempts,
+        );
+        var dependencyAttempts = 0;
+        final dependency = FutureProvider<int>(
+          (ref) async {
+            dependencyAttempts++;
+            if (dependencyAttempts == 1) throw Exception('first attempt');
+            return 42;
+          },
+          retry: (_, _) => null,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: (_, _) => null,
+            overrides: [
+              splashConfigProvider.overrideWithValue(
+                SplashConfig(
+                  fadeTransition: false,
+                  splashBuilder: (error, retry) => error == null
+                      ? const Text('Splash')
+                      : ElevatedButton(
+                          onPressed: retry,
+                          child: const Text('Retry'),
+                        ),
+                  tasks: [
+                    (ref) async {
+                      await ref.wait(successful.future);
+                      if (explicit) ref.invalidateOnRetry(dependency);
+                      await ref.wait(dependency.future);
+                    },
+                  ],
+                ),
+              ),
+            ],
+            child: const MaterialApp(
+              home: SplashBuilder(child: Text('Content')),
             ),
-          ],
-          child: const MaterialApp(
-            home: SplashBuilder(child: Text('Content')),
           ),
-        ),
-      );
+        );
 
-      await tester.pump();
-      await tester.pump();
-      expect(find.text('Retry'), findsOneWidget);
+        await tester.pump();
+        await tester.pump();
+        expect(find.text('Retry'), findsOneWidget);
 
-      await tester.tap(find.text('Retry'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Retry'));
+        await tester.pumpAndSettle();
 
-      expect(dependencyAttempts, 2);
-      expect(find.text('Content'), findsOneWidget);
-    });
+        expect(successfulAttempts, 1);
+        expect(dependencyAttempts, 2);
+        expect(find.text('Content'), findsOneWidget);
+      });
+    }
   });
 }
 

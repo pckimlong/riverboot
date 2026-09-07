@@ -1,5 +1,10 @@
 ## Unreleased
 
+* Make `wait` stop obsolete task continuations without reporting startup errors.
+* Automatically refresh failed awaited providers on manual retry while retaining
+  successful dependencies.
+* Add `ensureActive()` for lifecycle checks after external asynchronous work.
+
 * Add task-scoped provider policies through `SplashTaskRef`.
 * Add `watchForSplash`, `watch`, `wait`, `retain`, and retry dependency
   registration for isolated startup tasks.

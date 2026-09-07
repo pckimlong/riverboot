@@ -55,7 +55,6 @@ void main() {
 
           final authenticated = await ref.watchForSplash(authProvider.future);
           if (authenticated) {
-            ref.invalidateOnRetry(profileProvider);
             await ref.wait(profileProvider.future);
           }
         },
@@ -82,7 +81,6 @@ tasks: [
     if (authenticated) {
       // Required initially and kept alive, but later profile refreshes do not
       // rerun this task or restore splash.
-      ref.invalidateOnRetry(profileProvider);
       await ref.wait(profileProvider.future);
 
       // Start and retain background data without awaiting it.
@@ -100,25 +98,42 @@ tasks: [
 | `retain` | Does not rerun the task | Initializes and keeps provider alive |
 | `read` | Does not rerun the task | One-shot read without retention |
 
-Use `invalidateOnRetry(provider)` when a failed provider caches its error and
-must be invalidated before the task is attempted again.
+`wait` checks task validity before and after awaiting. If a watched dependency
+replaces the task, an obsolete wait stops its continuation without reporting a
+startup failure. The underlying operation itself is not cancelled.
+
+After external awaits (including futures returned by `watch` or
+`watchForSplash`), call `ensureActive()` before applying results:
+
+```dart
+final cachedId = await storage.readLocationId(org.id);
+ref.ensureActive();
+await ref.read(currentLocationIdProvider.notifier).set(cachedId);
+```
+
+Keep cache reads side-effect-free until that check. A notifier method already
+running must guard its own asynchronous mutations. Let Riverboot handle the
+internal cancellation signal; if task code catches errors, call
+`ensureActive()` before attempting recovery.
 
 ## Retry Support
 
 When a task fails, the splash screen shows an error with a retry button.
-Register providers whose cached state must be invalidated before retry:
+Failed `wait(provider.future)` calls automatically register that provider for
+refresh on manual retry. Successful waits keep their cached state:
 
 ```dart
 tasks: [
   (ref) async {
-    ref.invalidateOnRetry(myProvider);
     await ref.wait(myProvider.future);
   },
 ],
 ```
 
-Riverboot invalidates only the failed task's registered dependencies before
-executing that task again.
+Riverboot refreshes failed awaited providers and reruns failed tasks. Use
+`invalidateOnRetry(provider)` as an explicit override for deeper cached failures
+or work outside `wait`. Automatic tracking supports refreshable expressions such
+as `.future`; selected expressions need explicit registration.
 
 ## Example Application
 A full example lives in `example/lib/main.dart`. Run it with:
